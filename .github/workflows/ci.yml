@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# NOTE: the FRDM-RW612 firmware is NOT built in CI. The NXP MCUXpresso SDK is
+# not in the repo (license/size, see CLAUDE.md), and the project is generated
+# from MCUXpresso IDE. Its pure logic lives in firmware/common and IS tested
+# below on the host.
+
+jobs:
+  unit-tests:
+    name: Unit tests (gcc + Unity)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run
+        run: make -C tests/unit
+
+  esp32-build:
+    name: Compile ESP32 sketch (arduino-cli)
+    runs-on: ubuntu-latest
+    env:
+      ESP32_INDEX: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: arduino/setup-arduino-cli@v2
+      - name: Install esp32 core
+        run: |
+          arduino-cli core update-index --additional-urls "$ESP32_INDEX"
+          arduino-cli core install esp32:esp32 --additional-urls "$ESP32_INDEX"
+      - name: Sync protocol header (fails if the committed copy is stale)
+        run: |
+          python tools/sync_protocol.py
+          git diff --exit-code -- firmware/esp32-node
+      - name: Create config.h from template
+        run: cp firmware/esp32-node/esp32-node/config.example.h firmware/esp32-node/esp32-node/config.h
+      - name: Compile
+        run: arduino-cli compile --fqbn esp32:esp32:esp32 firmware/esp32-node/esp32-node
+
+  python-checks:
+    name: Schema lint + simulator
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: pip install -r tests/integration/requirements.txt
+      - name: Lint JSON Schema
+        run: |
+          python -c "import json; from jsonschema import Draft202012Validator as V; V.check_schema(json.load(open('interfaces/payload.schema.json')))"
+      - name: Import simulator
+        run: |
+          python -c "import sys; sys.path.insert(0, 'tools/node-simulator'); import simulator"
+          python tools/node-simulator/simulator.py --help
+      - name: Integration tests (broker tests are skipped without a broker)
+        run: pytest tests/integration -v

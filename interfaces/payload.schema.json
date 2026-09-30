@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:v2v-motorsport-telemetry:payload",
+  "title": "V2V Motorsport Telemetry MQTT payloads",
+  "description": "Payloads published on v2v/{node_id}/telemetry, /alert and /status. See interfaces/mqtt-topics.md.",
+  "oneOf": [
+    { "$ref": "#/$defs/telemetry" },
+    { "$ref": "#/$defs/alert" },
+    { "$ref": "#/$defs/status" }
+  ],
+  "$defs": {
+    "node_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]{1,32}$",
+      "description": "Node identifier, same value as in the topic."
+    },
+    "ts_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4294967295,
+      "description": "Sender uptime in milliseconds (uint32, wraps). Time base TBD."
+    },
+    "alert_type": {
+      "enum": ["manual", "hard_brake", "obstacle", "overtemp"],
+      "description": "Maps 1:1 to v2v_alert_type_t in interfaces/c/v2v_protocol.h."
+    },
+    "severity": {
+      "enum": ["info", "warning", "critical"],
+      "description": "Maps 1:1 to v2v_severity_t in interfaces/c/v2v_protocol.h."
+    },
+    "telemetry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "ts_ms", "seq", "speed_kmh", "accel_g", "temp_c", "distance_cm"],
+      "properties": {
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "ts_ms": { "$ref": "#/$defs/ts_ms" },
+        "seq": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "speed_kmh": { "type": "number", "minimum": 0 },
+        "accel_g": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["x", "y", "z"],
+          "properties": {
+            "x": { "type": "number" },
+            "y": { "type": "number" },
+            "z": { "type": "number" }
+          }
+        },
+        "temp_c": { "type": "number" },
+        "distance_cm": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "description": "null when the distance sensor reports no echo / out of range."
+        }
+      }
+    },
+    "alert": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "ts_ms", "seq", "alert_type", "severity"],
+      "properties": {
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "ts_ms": { "$ref": "#/$defs/ts_ms" },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 65535,
+          "description": "Same counter as v2v_packet_t.seq (uint16)."
+        },
+        "alert_type": { "$ref": "#/$defs/alert_type" },
+        "severity": { "$ref": "#/$defs/severity" }
+      }
+    },
+    "status": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["node_id", "state"],
+      "properties": {
+        "node_id": { "$ref": "#/$defs/node_id" },
+        "state": { "enum": ["online", "offline"] }
+      }
+    }
+  }
+}

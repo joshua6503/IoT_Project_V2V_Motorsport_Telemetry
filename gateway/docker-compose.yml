@@ -1,0 +1,33 @@
+# Local gateway: MQTT broker + Node-RED dashboard. DEVELOPMENT ONLY.
+#   docker compose -f gateway/docker-compose.yml up -d
+name: v2v-gateway
+
+services:
+  mosquitto:
+    image: eclipse-mosquitto:2
+    container_name: v2v-mosquitto
+    restart: unless-stopped
+    ports:
+      - "1883:1883"
+    volumes:
+      - ./mosquitto/config:/mosquitto/config:ro
+      - mosquitto-data:/mosquitto/data
+      - mosquitto-log:/mosquitto/log
+
+  node-red:
+    image: nodered/node-red:latest
+    container_name: v2v-node-red
+    restart: unless-stopped
+    depends_on:
+      - mosquitto
+    ports:
+      - "1880:1880"
+    environment:
+      - TZ=America/Mexico_City
+    volumes:
+      - node-red-data:/data
+
+volumes:
+  mosquitto-data:
+  mosquitto-log:
+  node-red-data:

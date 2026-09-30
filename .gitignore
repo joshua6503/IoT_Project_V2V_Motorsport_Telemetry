@@ -1,0 +1,52 @@
+# ---- MCUXpresso IDE build output ----
+Debug/
+Release/
+.settings/
+*.o
+*.d
+*.axf
+*.map
+*.bin
+*.hex
+*.elf
+
+# ---- NXP MCUXpresso SDK (never committed, see CLAUDE.md) ----
+SDK_*/
+sdk/
+mcuxsdk/
+**/rw612-node/**/CMSIS/
+**/rw612-node/**/device/
+**/rw612-node/**/component/
+**/rw612-node/**/middleware/
+**/rw612-node/**/startup/
+**/rw612-node/**/utilities/
+# SDK peripheral drivers land in drivers/ next to our own layer: ignore by name
+**/rw612-node/**/fsl_*.c
+**/rw612-node/**/fsl_*.h
+
+# ---- Arduino ----
+build/
+
+# ---- Python ----
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+
+# ---- Unit tests (Unity is fetched by the Makefile) ----
+tests/unit/vendor/
+tests/unit/out/
+
+# ---- Node-RED / Docker volumes ----
+data/
+node_modules/
+
+# ---- Secrets ----
+firmware/esp32-node/esp32-node/config.h
+.env
+
+# ---- OS / editors ----
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/settings.json
