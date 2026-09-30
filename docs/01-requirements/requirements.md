@@ -38,6 +38,8 @@ never renumber, mark obsolete requirements as *Deleted*.
 
 ## Open questions
 
-- Alert thresholds (g for hard brake, cm for obstacle, °C for overtemp): TBD with the vehicle team.
-- Time base (uptime vs. SNTP) for cross-node latency measurements.
-- Actuator patterns per severity.
+Tracked in [`../STATUS.md`](../STATUS.md):
+
+- Alert thresholds → OPEN-005
+- Time base → OPEN-007
+- Actuator patterns per severity → OPEN-006

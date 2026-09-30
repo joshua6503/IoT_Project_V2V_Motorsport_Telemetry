@@ -9,8 +9,10 @@ Short, dated entries. Anything that becomes a lasting decision gets an ADR.
   Mosquitto, contracts-first monorepo, layered firmware.
 - Protocol v0.1: 16-byte `v2v_packet_t`, GATT service UUID base `2b7b0001-fbc4-4f74-84ba-26504f32ca72`.
 - Locally installed MCUXpresso SDK for FRDM-RW612 reports version 26.06.00 in its
-  manifest; team-wide SDK version still TBD.
-- To validate: BLE and 802.15.4 cannot run simultaneously on the RW612
-  (assumption behind ADR-0001; not yet confirmed in the documentation we have).
-- Pending: pin assignment, exact sensor/actuator models, ESP32 dev-kit model,
-  alert thresholds, time base.
+  manifest; team-wide SDK version → OPEN-001.
+- To validate: BLE/802.15.4 simultaneity on the RW612 → OPEN-011 (ASSUMPTION).
+- Pending, tracked in [`STATUS.md`](STATUS.md): pin assignment → OPEN-003;
+  sensor/actuator and ESP32 dev-kit models → OPEN-004; alert thresholds → OPEN-005;
+  time base → OPEN-007.
+- Workflow adopted: chat = architect, Claude Code = implementer, rw612-tutor = technical
+  advisor; L0–L3 and ADR-0001..0005 moved back to Proposed pending team review.

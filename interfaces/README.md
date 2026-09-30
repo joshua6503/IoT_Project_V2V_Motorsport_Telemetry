@@ -45,5 +45,7 @@ The mapping is static configuration:
 
 ## Open points
 
-- Time base of `ts_ms` / `timestamp_ms`: node uptime for now. SNTP-synced epoch is TBD.
-- `cmd` payloads are not yet specified.
+Tracked in [`../docs/STATUS.md`](../docs/STATUS.md):
+
+- Time base of `ts_ms` / `timestamp_ms` → OPEN-007
+- `cmd` payloads → OPEN-010

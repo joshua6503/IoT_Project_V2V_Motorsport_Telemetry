@@ -1,10 +1,18 @@
 # ADR-0001: Use BLE for V2V instead of Thread/802.15.4
 
-- **Status:** Accepted
+- **Status:** Proposed
 - **Date:** 2026-09-30
 - **Deciders:** J. A. Chávez Montero, M. A. Mireles González, K. Rincones Partida, J. Santana Renteria
 
 ## Context
+
+Main argument — the hardware we have cannot form a mesh:
+
+- Only **one** RW612 is available.
+- A Thread mesh needs **at least 3 802.15.4 nodes plus a border router** to reach IP networks.
+- The secondary node is an ESP32 classic, which has BLE but **no 802.15.4 radio**.
+
+Secondary factor — shared radio (*to validate*, OPEN-011 in [`../STATUS.md`](../STATUS.md)):
 
 - The FRDM-RW612 offers Wi-Fi 6 plus "Bluetooth LE 5.4 / 802.15.4 radios"
   (NXP UG10160, §2, p.3). Its block diagram includes a *multi-radio coexistence*
@@ -13,9 +21,9 @@
 - Team understanding: on the RW612, BLE and 802.15.4 share the radio and cannot
   run at the same time. *To validate* against the RW61x datasheet / SDK coexistence
   documentation (not yet in the team's indexed documentation).
-- Only **one** RW612 is available. A useful Thread mesh needs several 802.15.4
-  nodes plus a border router to reach IP networks.
-- The secondary node is an ESP32 classic, which has BLE but no 802.15.4 radio.
+
+Nature of the traffic:
+
 - V2V events (hard brake, obstacle, over-temperature) are small, infrequent
   messages between two vehicles in the current setup.
 
@@ -40,5 +48,5 @@ kept in the roadmap (M4).
 | Alternative | Why not (now) |
 |---|---|
 | Thread / 802.15.4 mesh | Needs ≥ 3 802.15.4 nodes and a border router; ESP32 classic has no 802.15.4; radio shared with BLE on the RW612 (to validate). Roadmap M4. |
-| Wi-Fi (UDP/MQTT) for V2V | Depends on infrastructure (AP/broker); the safety path must work without it (REQ-NF-008). |
+| Wi-Fi (UDP/MQTT) for V2V | Depends on infrastructure (AP/broker); the safety path must work without it (REQ-NF-005). |
 | ESP-NOW | ESP32-only; not available on the RW612. |

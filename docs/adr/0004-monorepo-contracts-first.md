@@ -1,6 +1,6 @@
 # ADR-0004: Monorepo with a contracts-first approach
 
-- **Status:** Accepted
+- **Status:** Proposed
 - **Date:** 2026-09-30
 - **Deciders:** J. A. Chávez Montero, M. A. Mireles González, K. Rincones Partida, J. Santana Renteria
 

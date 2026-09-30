@@ -1,6 +1,6 @@
 # ADR-0005: Layered firmware architecture (App → Services → Drivers → Board)
 
-- **Status:** Accepted
+- **Status:** Proposed
 - **Date:** 2026-09-30
 - **Deciders:** J. A. Chávez Montero, M. A. Mireles González, K. Rincones Partida, J. Santana Renteria
 

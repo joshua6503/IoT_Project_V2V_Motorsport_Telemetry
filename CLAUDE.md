@@ -29,6 +29,14 @@ the receiver drives an actuator (LED/shift light, buzzer, haptic, relay).
    Unmeasured performance numbers are marked "(target, to validate)".
 6. `#include "fsl_*.h"` only in `firmware/rw612-node/board/`.
 
+## Workflow
+
+See [`docs/process/workflow.md`](docs/process/workflow.md) and [`docs/STATUS.md`](docs/STATUS.md).
+
+- Claude Code in this repo is the **implementer**: it applies approved handoffs and runs tests/builds.
+- It takes **no new decisions**; contradictions are reported as CONFLICTs.
+- Every session **ends with a commit block** (explicit paths, conventional message).
+
 ## Map
 
 | Path | What |
@@ -66,6 +74,7 @@ relative include into `interfaces/` fails. `tools/sync_protocol.py` copies
 | Milestone | State |
 |---|---|
 | Scaffold | done: contracts v0.1, CI, docs, stubs |
+| Layers L0–L3 (vision, requirements, architecture/ADRs, contracts) | in team review (PROPOSED), see `docs/STATUS.md` |
 | M1 — V2V BLE button → LED/buzzer | not started; RW612 project not yet generated |
 | M2 — MQTT telemetry + dashboard | simulator + gateway ready; nodes not started |
 | M3 — real sensors/actuators | blocked on BOM and pinout (TBD) |

@@ -1,6 +1,6 @@
 # ADR-0003: Telemetry over Wi-Fi + MQTT with a local Mosquitto broker
 
-- **Status:** Accepted
+- **Status:** Proposed
 - **Date:** 2026-09-30
 - **Deciders:** J. A. Chávez Montero, M. A. Mireles González, K. Rincones Partida, J. Santana Renteria
 
