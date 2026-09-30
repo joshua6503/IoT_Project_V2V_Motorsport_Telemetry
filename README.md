@@ -2,7 +2,7 @@
 
 **Telemetry and safety platform for connected competition vehicles (Formula Student, karting, Baja SAE): edge-detected hazards shared vehicle-to-vehicle over BLE, live telemetry over Wi-Fi/MQTT.**
 
-[![CI](https://github.com/TBD_OWNER/v2v-motorsport-telemetry/actions/workflows/ci.yml/badge.svg)](https://github.com/TBD_OWNER/v2v-motorsport-telemetry/actions/workflows/ci.yml)
+[![CI](https://github.com/joshua6503/IoT_Project_V2V_Motorsport_Telemetry/actions/workflows/ci.yml/badge.svg)](https://github.com/joshua6503/IoT_Project_V2V_Motorsport_Telemetry/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 > Status: **scaffold** — structure, contracts, CI and docs are in place; firmware logic starts with M1.
