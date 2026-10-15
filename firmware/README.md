@@ -13,7 +13,8 @@ Every function has a unit test in `tests/unit/`.
 
 | Module | Purpose | State |
 |---|---|---|
-| `alert_logic` | `alert_evaluate()`: telemetry sample → alert decision | stub |
+| `alert_logic` | `alert_evaluate()`: stateful rules (obstacle, overtemp hysteresis, hard brake latch) + DEC-003 arbitration | done (bench thresholds, OPEN-005) |
+| `alert_pattern` | `alert_pattern_for()`: alert → LED/buzzer state (DEC-004); `alert_shift_level()` | done |
 | `v2v_codec` (planned) | encode/decode `v2v_packet_t`, CRC-16 | not started |
 
 ## Include paths
