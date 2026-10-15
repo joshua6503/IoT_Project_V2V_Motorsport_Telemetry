@@ -42,7 +42,7 @@ See [`docs/process/workflow.md`](docs/process/workflow.md) and [`docs/STATUS.md`
 | Path | What |
 |---|---|
 | `interfaces/` | MQTT topics, JSON Schema, BLE GATT, `c/v2v_protocol.h` |
-| `firmware/common/` | pure C99 logic (`alert_logic`) |
+| `firmware/common/` | pure C99 logic (`alert_logic`, `alert_pattern`) |
 | `firmware/rw612-node/{app,services,drivers,board}` | RW612 layers (ADR-0005) |
 | `firmware/esp32-node/esp32-node/` | Arduino sketch folder |
 | `gateway/` | docker-compose, mosquitto.conf |
@@ -69,13 +69,14 @@ relative include into `interfaces/` fails. `tools/sync_protocol.py` copies
 - C: `snake_case` files and symbols; module prefixes `v2v_`, `tlm_`, `alert_`.
 - Secrets: `firmware/esp32-node/esp32-node/config.h` is git-ignored; template is `config.example.h`.
 
-## Status by milestone (2026-09-30)
+## Status by milestone (2026-10-14)
 
 | Milestone | State |
 |---|---|
 | Scaffold | done: contracts v0.1, CI, docs, stubs |
 | Layers L0–L3 (vision, requirements, architecture/ADRs, contracts) | in team review (PROPOSED), see `docs/STATUS.md` |
-| M1 — V2V BLE button → LED/buzzer | not started; RW612 project not yet generated |
+| MP1 (school) ↔ M3-local | sensors + `alert_evaluate` + local LEDs/buzzer, no network (REQ-F-014); sources in `firmware/rw612-node/`, pins TBD (HANDOFF-002) |
+| M1 — V2V BLE button → LED/buzzer | not started; V2V moves to MP2 (CONFLICT-002) |
 | M2 — MQTT telemetry + dashboard | simulator + gateway ready; nodes not started |
 | M3 — real sensors/actuators | blocked on BOM and pinout (TBD) |
 | M4 — Thread mesh, InfluxDB/Grafana | roadmap |

@@ -15,11 +15,12 @@ never renumber, mark obsolete requirements as *Deleted*.
 | REQ-F-006 | Each node shall mirror every V2V alert it sends on `v2v/{node_id}/alert`. | M2 |
 | REQ-F-007 | The dashboard shall show live telemetry, alerts and online state per node, and keep a history. | M2 |
 | REQ-F-008 | The simulator shall publish schema-valid telemetry and alerts with configurable broker, node id and rate. | M2 |
-| REQ-F-009 | The RW612 node shall read an IMU, a distance sensor and a temperature sensor (models TBD). | M3 |
+| REQ-F-009 | The RW612 node shall read an IMU, a distance sensor and a temperature sensor (models TBD). *MP1 note (DEC-002): the IMU is replaced by the brake-pressure potentiometer; HC-SR04 + DHT11 are the MP1 sensors.* | M3 |
 | REQ-F-010 | The node shall detect `hard_brake`, `obstacle` and `overtemp` locally with `alert_evaluate()` (thresholds TBD). | M3 |
 | REQ-F-011 | The receiver shall map severity to actuator pattern (mapping TBD): LED/shift light, buzzer, haptic, relay. | M3 |
 | REQ-F-012 | Nodes shall form an 802.15.4/Thread mesh with a border router. | M4 (roadmap) |
 | REQ-F-013 | Telemetry history shall be stored in InfluxDB and shown in Grafana. | M4 (roadmap) |
+| REQ-F-014 | The node shall decide and drive its own actuators locally from its sensor readings, without any network, gateway or external device. | MP1 / M3 |
 
 ## Non-functional
 
@@ -42,4 +43,4 @@ Tracked in [`../STATUS.md`](../STATUS.md):
 
 - Alert thresholds → OPEN-005
 - Time base → OPEN-007
-- Actuator patterns per severity → OPEN-006
+- Actuator patterns per severity → OPEN-006 (closed for MP1 by DEC-004)

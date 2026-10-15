@@ -1,6 +1,6 @@
 # ADR-0001: Use BLE for V2V instead of Thread/802.15.4
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-10-14, CONFLICT-001)
 - **Date:** 2026-09-30
 - **Deciders:** J. A. Chávez Montero, M. A. Mireles González, K. Rincones Partida, J. Santana Renteria
 
@@ -32,6 +32,8 @@ Nature of the traffic:
 V2V messaging uses **BLE** with a custom GATT service
 ([`interfaces/ble-gatt.md`](../../interfaces/ble-gatt.md)). Thread/802.15.4 mesh is
 kept in the roadmap (M4).
+
+Supersedes the 802.15.4/Thread V2V wording of the school design (Actividad 3).
 
 ## Consequences
 
