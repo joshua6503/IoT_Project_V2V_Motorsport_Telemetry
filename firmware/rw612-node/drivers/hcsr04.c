@@ -19,6 +19,9 @@
 /** ECHO still high after this -> out of range (DEC-008); 4 m max range [HCSR04.pdf] + margin. */
 #define HCSR04_ECHO_TIMEOUT_US 30000u
 
+static uint32_t s_echo_us;
+static hcsr04_err_t s_err = HCSR04_ERR_NO_RISE;
+
 void hcsr04_init(void)
 {
     board_gpio_set_output(BOARD_IO_HCSR04_TRIG, false);
@@ -44,9 +47,12 @@ float hcsr04_read_cm(void)
     uint32_t rise_us;
     uint32_t fall_us;
 
+    s_echo_us = 0u;
+
     /* A previous echo still high: the sensor is not ready. */
     if (board_gpio_read(BOARD_IO_HCSR04_ECHO))
     {
+        s_err = HCSR04_ERR_BUSY;
         return -1.0f;
     }
 
@@ -56,11 +62,26 @@ float hcsr04_read_cm(void)
 
     if (!wait_level(true, HCSR04_ECHO_START_TIMEOUT_US, &rise_us))
     {
+        s_err = HCSR04_ERR_NO_RISE;
         return -1.0f; /* no answer: fault */
     }
     if (!wait_level(false, HCSR04_ECHO_TIMEOUT_US, &fall_us))
     {
+        s_echo_us = board_time_us() - rise_us;
+        s_err     = HCSR04_ERR_TIMEOUT;
         return HCSR04_MAX_CM; /* nothing in range: valid reading */
     }
-    return (float)(uint32_t)(fall_us - rise_us) / HCSR04_US_PER_CM;
+    s_echo_us = fall_us - rise_us;
+    s_err     = HCSR04_ERR_OK;
+    return (float)s_echo_us / HCSR04_US_PER_CM;
+}
+
+unsigned hcsr04_last_echo_us(void)
+{
+    return (unsigned)s_echo_us;
+}
+
+hcsr04_err_t hcsr04_last_err(void)
+{
+    return s_err;
 }

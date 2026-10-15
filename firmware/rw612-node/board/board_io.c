@@ -165,7 +165,9 @@ static void pins_mux_init(void)
 #endif
     /* TODO(tutor): do the ADC input pins (BOARD_ADC_CH_BRAKE / _TPS) need an
      * IO_MUX_SetPinMux()/IO_MUX_SetPinConfig() call to work as analog inputs?
-     * driver_examples/adc/software_trigger/pin_mux.c muxes only the UART. */
+     * driver_examples/adc/software_trigger/pin_mux.c muxes only the UART, and
+     * fsl_io_mux.h defines no analog/ADC function for GPIO_46 (only IO_MUX_GPIO46,
+     * a digital GPIO, and IO_MUX_GAU_TRIGGER0/1). Left untouched: GPIO_46 is not muxed. */
     /* TODO(tutor): does the DHT11 data line need IO_MUX_SetPinConfig(pin,
      * IO_MUX_PinConfigPullUp...) or is the module's on-board pull-up enough? */
 }
@@ -208,6 +210,15 @@ static void adc_init(void)
     ADC_ClearStatusFlags(BOARD_ADC_BASE, kADC_DataReadyRawFlag | kADC_DataReadyInterruptFlag);
 }
 
+#define BOARD_ADC_SOURCE_NONE 0xFFFFFFFFu /* no scan channel programmed yet */
+#define BOARD_ADC_FLUSH_MAX   64u         /* bound for draining stale FIFO entries */
+
+static uint32_t s_adc_source = BOARD_ADC_SOURCE_NONE;
+static uint32_t s_adc_last_raw32;
+static uint8_t s_adc_last_fifo;
+
+/* Flow of adc_software_trigger.c:84-104: scan channel set once, then per sample
+ * DoSoftwareTrigger -> wait for data -> GetConversionResult -> StopConversion. */
 static bool adc_convert(adc_channel_source_t source, int32_t *raw)
 {
     if (!s_adc_ok || (raw == NULL))
@@ -215,30 +226,63 @@ static bool adc_convert(adc_channel_source_t source, int32_t *raw)
         return false;
     }
 
-    ADC_SetScanChannel(BOARD_ADC_BASE, kADC_ScanChannel0, source);
+    /* The example programs the scan channel once; do it again only when the channel changes. */
+    if ((uint32_t)source != s_adc_source)
+    {
+        ADC_SetScanChannel(BOARD_ADC_BASE, kADC_ScanChannel0, source);
+        s_adc_source = (uint32_t)source;
+    }
+
+    /* Drop stale results (calibration, previous channel) so the read below is this conversion's.
+     * TODO(tutor): confirm that reading ADC_REG_RESULT pops one FIFO entry (RM00278 22.1.16). */
+    for (uint32_t i = 0u; (i < BOARD_ADC_FLUSH_MAX) && (ADC_GetFifoDataCount(BOARD_ADC_BASE) > 0U); i++)
+    {
+        (void)ADC_GetConversionResult(BOARD_ADC_BASE);
+    }
+    ADC_ClearStatusFlags(BOARD_ADC_BASE, kADC_DataReadyRawFlag | kADC_DataReadyInterruptFlag);
+
     ADC_DoSoftwareTrigger(BOARD_ADC_BASE);
 
-    /* Polling instead of the example's IRQ: the raw flag is captured regardless
-     * of the interrupt mask (fsl_adc.h, _adc_status_flags, kADC_DataReadyRawFlag). */
+    /* Wait until the FIFO holds data (fsl_adc.h -> ADC_GetFifoDataCount), not only the raw flag. */
     uint32_t t0 = board_time_us();
-    while ((ADC_GetStatusFlags(BOARD_ADC_BASE) & kADC_DataReadyRawFlag) == 0U)
+    uint8_t fifo;
+    while ((fifo = ADC_GetFifoDataCount(BOARD_ADC_BASE)) == 0U)
     {
         if ((board_time_us() - t0) > BOARD_ADC_TIMEOUT_US)
         {
             ADC_StopConversion(BOARD_ADC_BASE);
+            s_adc_last_fifo  = 0u;
+            s_adc_last_raw32 = 0u;
             return false;
         }
     }
 
-    /* TODO(tutor): format of ADC_GetConversionResult() with kADC_ResultWidth16
-     * (default) and kADC_Resolution16Bit single-ended: is it a signed 16-bit value,
-     * and can two samples be packed in the 32-bit word? The example prints it with
-     * %d. Here it is taken as a signed 16-bit sample; pot.c calibrates min/max. */
-    *raw = (int32_t)(int16_t)(ADC_GetConversionResult(BOARD_ADC_BASE) & 0xFFFFU);
-
+    uint32_t raw32 = ADC_GetConversionResult(BOARD_ADC_BASE);
     ADC_ClearStatusFlags(BOARD_ADC_BASE, kADC_DataReadyRawFlag | kADC_DataReadyInterruptFlag);
     ADC_StopConversion(BOARD_ADC_BASE);
+
+    s_adc_last_fifo  = fifo;
+    s_adc_last_raw32 = raw32;
+
+    /* TODO(tutor): format of ADC_GetConversionResult() with kADC_ResultWidth16
+     * (default) and kADC_Resolution16Bit single-ended: is it a signed 16-bit value,
+     * and can two samples be packed in the 32-bit word? The example readme gives
+     * "Conversion Result = (Vin / Vref) * 32767". Taken as a signed 16-bit sample;
+     * the log shows the full word (adc32) to settle it on the bench. */
+    *raw = (int32_t)(int16_t)(raw32 & 0xFFFFU);
     return true;
+}
+
+void board_adc_last_diag(uint32_t *raw32, uint8_t *fifo_count)
+{
+    if (raw32 != NULL)
+    {
+        *raw32 = s_adc_last_raw32;
+    }
+    if (fifo_count != NULL)
+    {
+        *fifo_count = s_adc_last_fifo;
+    }
 }
 
 bool board_adc_read_raw(board_adc_t ch, int32_t *raw)
@@ -276,19 +320,70 @@ bool board_adc_read_channel_raw(uint8_t channel, int32_t *raw)
 /*      CLOCK_AttachClk, CLOCK_GetCTimerClkFreq                               */
 /* ------------------------------------------------------------------------- */
 
+static uint32_t s_timebase_hz;
+static uint32_t s_timebase_prescale;
+
 static void timebase_init(void)
 {
+    /* kSFRO_to_CTIMER1 writes CLKCTL1->CT32BITFCLKSEL[1] = 1, the same register
+     * CLOCK_GetCTimerClkFreq(1) decodes (fsl_clock.c, case SEL(1) -> CLOCK_GetSFroFreq()).
+     * Note: CLOCK_GetSFroFreq() = CLOCK_GetT3PllMci256mClkFreq() / 16, and that function
+     * returns a constant 256 MHz, so this value is not a measurement: use
+     * board_timebase_measure() to check the real rate. */
     CLOCK_AttachClk(BOARD_TIMEBASE_CLK_ATTACH);
+    s_timebase_hz = CLOCK_GetCTimerClkFreq(BOARD_TIMEBASE_CTIMER_ID);
 
     ctimer_config_t cfg;
     CTIMER_GetDefaultConfig(&cfg);
-    /* TC increments every (prescale + 1) clocks (simple_pwm.c:68). */
-    cfg.prescale = (CLOCK_GetCTimerClkFreq(BOARD_TIMEBASE_CTIMER_ID) / BOARD_US_PER_S) - 1U;
+    /* TC increments every (prescale + 1) clocks (simple_pwm.c:68). Guard the
+     * subtraction: a clock below 1 MHz would wrap it to 0xFFFFFFFF. */
+    s_timebase_prescale = (s_timebase_hz >= BOARD_US_PER_S) ? ((s_timebase_hz / BOARD_US_PER_S) - 1U) : 0U;
+    cfg.prescale        = s_timebase_prescale;
     CTIMER_Init(BOARD_TIMEBASE_CTIMER, &cfg);
     CTIMER_StartTimer(BOARD_TIMEBASE_CTIMER);
 
     s_last_tc  = 0u;
     s_tc_wraps = 0u;
+}
+
+void board_timebase_info(uint32_t *ctimer_hz, uint32_t *prescale)
+{
+    if (ctimer_hz != NULL)
+    {
+        *ctimer_hz = s_timebase_hz;
+    }
+    if (prescale != NULL)
+    {
+        *prescale = s_timebase_prescale;
+    }
+}
+
+/* Independent reference: the Cortex-M33 DWT cycle counter (CMSIS core_cm33.h ->
+ * DCB->DEMCR TRCENA, DWT->CTRL CYCCNTENA) counts core clocks at SystemCoreClock. */
+bool board_timebase_measure(uint32_t us, uint32_t *ctimer_ticks, uint32_t *core_cycles, uint32_t *core_hz)
+{
+    if ((ctimer_ticks == NULL) || (core_cycles == NULL) || (core_hz == NULL))
+    {
+        return false;
+    }
+    DCB->DEMCR |= DCB_DEMCR_TRCENA_Msk;
+    if ((DWT->CTRL & DWT_CTRL_NOCYCCNT_Msk) != 0U)
+    {
+        return false; /* cycle counter not implemented */
+    }
+    DWT->CYCCNT = 0U;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+    uint32_t tc0 = CTIMER_GetTimerCountValue(BOARD_TIMEBASE_CTIMER);
+    uint32_t cy0 = DWT->CYCCNT;
+    board_delay_us(us);
+    uint32_t cy1 = DWT->CYCCNT;
+    uint32_t tc1 = CTIMER_GetTimerCountValue(BOARD_TIMEBASE_CTIMER);
+
+    *ctimer_ticks = tc1 - tc0;
+    *core_cycles  = cy1 - cy0;
+    *core_hz      = SystemCoreClock;
+    return true;
 }
 
 /* TODO(tutor): confirm the CTIMER TC wraps 0xFFFFFFFF -> 0 when no match resets it

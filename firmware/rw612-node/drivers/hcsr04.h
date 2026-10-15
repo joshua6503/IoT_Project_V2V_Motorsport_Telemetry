@@ -15,6 +15,15 @@ extern "C" {
 /** Reading returned when the echo is still high at the timeout: out of range (DEC-008). */
 #define HCSR04_MAX_CM 500.0f
 
+/** Outcome of the last hcsr04_read_cm(), for the bring-up log (echo_err). */
+typedef enum
+{
+    HCSR04_ERR_OK      = 0, /**< echo measured */
+    HCSR04_ERR_NO_RISE = 1, /**< no rising edge within 5 ms (fault, -1) */
+    HCSR04_ERR_TIMEOUT = 2, /**< echo still high after 30 ms (out of range, HCSR04_MAX_CM) */
+    HCSR04_ERR_BUSY    = 3  /**< ECHO already high before TRIG (fault, -1) */
+} hcsr04_err_t;
+
 /** Configure TRIG as output (low) and ECHO as input. */
 void hcsr04_init(void);
 
@@ -29,6 +38,12 @@ void hcsr04_init(void);
  * @return Distance in cm, HCSR04_MAX_CM if out of range, or -1.0f on fault.
  */
 float hcsr04_read_cm(void);
+
+/** Echo pulse width (us) of the last read; 0 when there was no rising edge. */
+unsigned hcsr04_last_echo_us(void);
+
+/** Outcome of the last read. */
+hcsr04_err_t hcsr04_last_err(void);
 
 #ifdef __cplusplus
 }

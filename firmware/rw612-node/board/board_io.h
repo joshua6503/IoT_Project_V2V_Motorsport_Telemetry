@@ -73,6 +73,22 @@ bool board_adc_read_raw(board_adc_t ch, int32_t *raw);
  */
 bool board_adc_read_channel_raw(uint8_t channel, int32_t *raw);
 
+/** Last ADC conversion: full 32-bit result word and FIFO data count seen before the read. */
+void board_adc_last_diag(uint32_t *raw32, uint8_t *fifo_count);
+
+/** Timebase clock as reported by the SDK (CLOCK_GetCTimerClkFreq) and the prescale applied. */
+void board_timebase_info(uint32_t *ctimer_hz, uint32_t *prescale);
+
+/**
+ * @brief Run board_delay_us(@p us) and measure it with the timebase CTIMER and with the
+ *        core cycle counter (independent of the CTIMER clock).
+ * @param[out] ctimer_ticks CTIMER TC delta (expected == us).
+ * @param[out] core_cycles  DWT CYCCNT delta (expected == us * core_hz / 1e6).
+ * @param[out] core_hz      SystemCoreClock.
+ * @return false if the core has no cycle counter or an argument is NULL.
+ */
+bool board_timebase_measure(uint32_t us, uint32_t *ctimer_ticks, uint32_t *core_cycles, uint32_t *core_hz);
+
 /** Free-running microsecond counter (wraps after ~71 min; use unsigned differences). */
 uint32_t board_time_us(void);
 /** Milliseconds since board_init_all() (wraps after ~49 days). */

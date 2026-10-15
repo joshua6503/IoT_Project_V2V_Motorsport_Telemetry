@@ -18,6 +18,13 @@
 #define APP_LOG_PERIOD_MS    200u  /**< one UART log line */
 
 /* ------------------------------------------------------------------------- */
+/* Bring-up: timebase self-test at boot (prints CTIMER1 clock, 1 s measured  */
+/* with the core cycle counter, then blinks green 10 x 1 s to time it)       */
+/* ------------------------------------------------------------------------- */
+#define APP_TIMEBASE_SELFTEST 1
+#define APP_TIMEBASE_BLINKS   10u
+
+/* ------------------------------------------------------------------------- */
 /* Boot ADC scan (OPEN-014): print CH0..CH7 raw, 3 passes, 500 ms apart      */
 /* ------------------------------------------------------------------------- */
 #define APP_ADC_SCAN_AT_BOOT    1
