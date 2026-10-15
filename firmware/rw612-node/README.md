@@ -27,30 +27,58 @@ Final choice: **TBD**, record it in `docs/project-notes.md` (and an ADR if it ch
 
 ## Import steps
 
-1. MCUXpresso IDE → *Quickstart Panel* → **Import SDK example(s)…** → board `frdmrw612` → pick the example.
-2. Import into this folder: **`firmware/rw612-node/`** as the project location
-   (untick *Copy sources* only if you know the SDK path is identical on every PC; copying is safer).
-3. Move/create our code into the layer folders:
+The IDE project is local and **not committed** (`firmware/rw612-node/V2V_IOT/` is git-ignored).
+Each teammate recreates it; the settings below are the ones verified with a headless build
+(Debug and Release, 0 errors, 0 warnings, 2026-10-14).
 
-   | Folder | Put here |
+1. MCUXpresso IDE → *Quickstart Panel* → **Import SDK example(s)…** → board `frdmrw612` →
+   `demo_apps/hello_world`. Project location: **`firmware/rw612-node/V2V_IOT/hello_world`**
+   (project name `V2V_IOT_hello_world`).
+2. **Exclude `source/hello_world.c` from the build** (right-click → *Resource Configurations →
+   Exclude from Build*, Debug and Release). The example's `board/hardware_init.c` stays:
+   `board_io.c` calls its `BOARD_InitHardware()`.
+3. Project → Properties → C/C++ Build → Settings → *MCU C Compiler → Includes* → *Include paths
+   (-I)*, Debug and Release, add (leave *Include files (-include)* empty):
+   - `${ProjDirPath}/../../app`
+   - `${ProjDirPath}/../../services`
+   - `${ProjDirPath}/../../drivers`
+   - `${ProjDirPath}/../../board`
+   - `${ProjDirPath}/../../../common/include`
+   - `${ProjDirPath}/../../../../interfaces/c`
+4. Add **linked source folders** (Project → New → Folder → Advanced → *Link to alternate
+   location*). They are named `mp1_*` because the project already has `board/` and `drivers/`:
+
+   | Folder | Location |
    |---|---|
-   | `app/` | `main.c`, task creation, state machine |
-   | `services/` | `v2v_*.c` (GATT service), `tlm_*.c` (MQTT), `alert_*.c` (actuation) |
-   | `drivers/` | sensor/actuator drivers built on `board/` |
-   | `board/` | `board.c/.h`, `pin_mux.c/.h`, `clock_config.c/.h`, SDK peripheral wrappers |
+   | `mp1_app` | `PROJECT_LOC/../../app` |
+   | `mp1_services` | `PROJECT_LOC/../../services` |
+   | `mp1_drivers` | `PROJECT_LOC/../../drivers` |
+   | `mp1_board` | `PROJECT_LOC/../../board` |
+   | `mp1_common` | `PROJECT_LOC/../../../common/src` |
 
-   The example's SDK folders (`device/`, `component/`, `middleware/`, `CMSIS/`, `startup/`,
-   `utilities/`) stay as generated and are git-ignored.
-   **Name clash:** the IDE puts SDK peripheral drivers (`fsl_*.c/.h`) in a `drivers/`
-   folder, the same name as our layer. `.gitignore` excludes `fsl_*` by name, so only
-   our own drivers are committed. Never put our files under an `fsl_` prefix.
-4. Project → Properties → C/C++ Build → Settings → *MCU C Compiler → Includes*, add:
-   - `${ProjDirPath}/../../interfaces/c`
-   - `${ProjDirPath}/../common/include`
-5. Add `firmware/common/src` as a **linked source folder**
-   (Project → New → Folder → Advanced → *Link to alternate location*: `PROJECT_LOC/../common/src`).
-6. Build. Commit only our files plus the `.project`/`.cproject` if the team agrees
-   they are portable (TBD — check for absolute paths first).
+   In each one, exclude `README.md` and `.gitkeep` from the build.
+5. Copy the SDK drivers that `hello_world` does not bring from
+   `C:\nxp\SDK_RW612\devices\RW612\drivers\` into the project's `drivers/` folder:
+   `fsl_adc.c/.h` and `fsl_ctimer.c/.h` (both only need `fsl_common.h`, already present).
+   GPIO, IO mux, clock, power, reset and the debug console are already in `hello_world`.
+6. *Build* and *Debug* with the on-board MCU-Link.
+7. Open the debug console (MCU-Link VCOM, 115200 8N1 as in `hello_world`). At boot it prints
+   three `adc_scan pass=<n> ch0=.. ch7=..` lines 500 ms apart (turn the TPS pot to find its
+   channel, OPEN-014), then one line every 200 ms:
+   `t=<ms> dist=<cm> temp=<C> brake=<%> brake_raw=<counts> tps=<%> alert=<...> sev=<...> fault=<0|1>`.
+   Read `brake_raw` at both pot ends to set `APP_POT_BRAKE_RAW_MIN/MAX` in `app/app_config.h`.
+
+Switching the buzzer type (OPEN-013) is one line in `app/app_config.h`:
+`#define BUZZER_KIND BUZZER_KIND_PASSIVE`.
+
+Find the COM port from PowerShell:
+
+```powershell
+Get-CimInstance Win32_SerialPort | Select-Object DeviceID, Description
+```
+
+Open SDK questions are marked `TODO(tutor)` in `board/board_io.c`; datasheet citations
+still missing are marked `TODO(datasheet)` in `drivers/` and `app/app_config.h`.
 
 ## Rules
 

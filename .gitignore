@@ -23,6 +23,8 @@ mcuxsdk/
 # SDK peripheral drivers land in drivers/ next to our own layer: ignore by name
 **/rw612-node/**/fsl_*.c
 **/rw612-node/**/fsl_*.h
+# Local MCUXpresso IDE project (imported hello_world), not committed
+firmware/rw612-node/V2V_IOT/
 
 # ---- Arduino ----
 build/
