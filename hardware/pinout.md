@@ -1,6 +1,7 @@
 # Pinout
 
-MP1 rows are DECIDED by DEC-005 (2026-10-14); firmware copy in
+MP1 rows are DECIDED by DEC-005 (2026-10-14), divider values as wired by DEC-011
+(2026-11-10, voltages calculated, not measured); firmware copy in
 `firmware/rw612-node/board/board_pins.h`. Other rows stay **TBD**.
 
 Port/pin rule: GPIO_n → port 0 pin n (n < 32), port 1 pin n−32 (n ≥ 32)
@@ -12,10 +13,10 @@ component_examples/memfault/pin_mux.c GPIO_55 = PIO1_23].
 | Function | Signal | RW612 pin / GPIO | Header pin | Peripheral | Voltage | Source |
 |---|---|---|---|---|---|---|
 | Ultrasonic TRIG (HC-SR04) | output | GPIO_20 (port 0, pin 20) | D7, J1-16 | GPIO, `IO_MUX_GPIO20` | 3.3 V out (HC-SR04 at 5 V) | [UM12160 p.18-19, Fig. 13 / Table 14] |
-| Ultrasonic ECHO (HC-SR04) | input | GPIO_50 (port 1, pin 18) | D8, J2-2 | GPIO, `IO_MUX_GPIO50` | 5 V → 2.2 kΩ / 3.3 kΩ divider ≈ 3.0 V (OPEN-015) | [UM12160 p.19, Table 15] |
+| Ultrasonic ECHO (HC-SR04) | input | GPIO_50 (port 1, pin 18) | D8, J2-2 | GPIO, `IO_MUX_GPIO50` | 5 V → 2 kΩ / 2.7 kΩ divider ≈ 2.9 V (calc., DEC-011; input-high threshold OPEN-015) | [UM12160 p.19, Table 15] |
 | Temperature (DHT11 DATA) | bidirectional | GPIO_52 (port 1, pin 20) | D9, J2-4 | GPIO, `IO_MUX_GPIO52` (drive low / release as input) | 3.3 V | [UM12160 p.20, Table 15]; [SDK: ctimer/capture/app.h] |
-| Brake pot (pot #1) | analog | GPIO_46 | Pmod J7-3 | `GAU_GPADC0`, `kADC_CH4`, Vref 1.2 V | 0.2–1.2 V (27 kΩ / pot / 2.7 kΩ divider) | [SDK: adc/software_trigger/app.h; example_board_readme.md "J7-3(GPIO_46)"] |
-| TPS pot (pot #2, optional) | analog | GPIO_42 | A0 (J4) | ADC, channel **TBD (OPEN-014)** | 0.2–1.2 V | [UM12160 p.18, Fig. 13 "GPIO_42_ARD_A0"] |
+| Brake pot (pot #1) | analog | GPIO_46 | Pmod J7-3 | `GAU_GPADC0`, `kADC_CH4`, Vref 1.2 V | 0.10–1.00 V calc. (3.3 V → 5.1 kΩ / 2 kΩ pot / 220 Ω, DEC-011) | [SDK: adc/software_trigger/app.h; example_board_readme.md "J7-3(GPIO_46)"] |
+| TPS pot (pot #2, optional) | analog | GPIO_42 | A0 (J4) | ADC, channel **TBD (OPEN-014)** | 0.19–1.03 V calc. (3.3 V → 2.7 kΩ / 1 kΩ pot / 220 Ω, DEC-011) | [UM12160 p.18, Fig. 13 "GPIO_42_ARD_A0"] |
 | LED green | output | GPIO_15 (port 0, pin 15) | D3, J1-8 | GPIO, `IO_MUX_GPIO15`, active high (330 Ω to GND) | 3.3 V | [UM12160 p.19, Table 14] |
 | LED yellow | output | GPIO_18 (port 0, pin 18) | D4, J1-10 | GPIO, `IO_MUX_GPIO18`, active high | 3.3 V | [UM12160 p.19, Table 14] (shared with Pmod J7-2, unused) |
 | LED red | output | GPIO_27 (port 0, pin 27) | D5, J1-12 | GPIO, `IO_MUX_GPIO27`, active high | 3.3 V | [UM12160 p.19, Table 14] |
