@@ -80,6 +80,48 @@ Get-CimInstance Win32_SerialPort | Select-Object DeviceID, Description
 Open SDK questions are marked `TODO(tutor)` in `board/board_io.c`; datasheet citations
 still missing are marked `TODO(datasheet)` in `drivers/` and `app/app_config.h`.
 
+## PDS: brake FIR
+
+Low-pass FIR on the brake-pressure pot for the Digital Signal Processing course
+(REQ-F-015, REQ-F-016, DEC-009). The filter is the pure-C convolution
+`firmware/common/src/fir_filter.c`; its coefficients are the generated header
+`firmware/common/include/fir_brake_coeffs.h`. Both are already reached by the import
+steps above (`mp1_common` linked folder and the `common/include` include path):
+**no IDE change** is needed.
+
+Switches in `app/app_config.h`:
+
+| Switch | Default | Effect |
+|---|---|---|
+| `APP_ENABLE_BRAKE_FIR` | 1 | Each successful brake read goes through `fir_process()`; the filtered value feeds `tlm.brake_pct` and therefore `alert_evaluate()`. During the warm-up (first N samples, 400 ms at N = 9 / 20 Hz) the raw value is used. 0 = MP1 behaviour, filter not compiled in. |
+| `APP_LOG_DSP_CSV` | 0 | 1 = print `dsp,<t_ms>,<x_pct>,<y_pct>` per brake sample and suppress the 200 ms log line. Needs `APP_ENABLE_BRAKE_FIR 1` (build error otherwise). |
+
+With the filter on, the boot log has one extra line
+`fir N=9 fs=20.0 fc=2.0 delay_ms=200` (group delay of the filter, logged on purpose),
+and the 200 ms log line gains `brake_f=` (filter output) next to `brake=` (raw pot %).
+
+Design: fs = 20 Hz (the existing 50 ms pot slot), N = 9, fc = 2 Hz, Hamming —
+**ASSUMPTION, to validate with the FFT of a raw capture**. Faster sampling is OPEN-016.
+
+Capture and compare spectra:
+
+1. Set `APP_LOG_DSP_CSV 1`, rebuild, flash.
+2. Close the serial terminal, then from the repo root (venv in `tools\dsp\.venv`):
+
+   ```powershell
+   python tools\dsp\analyze_capture.py --port COM5 --seconds 30
+   ```
+
+3. Set `APP_LOG_DSP_CSV 0` again for normal use.
+
+Regenerate the coefficients (then rerun `make -C tests/unit` and rebuild):
+
+```powershell
+python tools\dsp\design_fir.py --fs 20 --fc 2 --taps 9 --window hamming --reference --plot
+```
+
+Details: [`tools/dsp/README.md`](../../tools/dsp/README.md).
+
 ## Rules
 
 - `#include "fsl_*.h"` only inside `board/`.

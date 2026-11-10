@@ -13,6 +13,11 @@
  *   - every APP_SENSOR_PERIOD_MS: pots -> telemetry_t -> alert_evaluate().
  *   - every iteration: alert_actuation_update() (smooth blinking).
  *   - every APP_LOG_PERIOD_MS: one log line on the debug UART.
+ *
+ * PDS (DEC-009, REQ-F-015/016): with APP_ENABLE_BRAKE_FIR the brake pot goes through
+ * an FIR low-pass (fir_filter.c) before alert_evaluate(); with APP_LOG_DSP_CSV every
+ * brake sample is printed as `dsp,<t_ms>,<x_pct>,<y_pct>` instead of the log line.
+ * With APP_ENABLE_BRAKE_FIR 0 none of this is compiled and MP1 is unchanged.
  */
 #include <stdbool.h>
 #include <stdint.h>
@@ -26,6 +31,15 @@
 #include "hcsr04.h"
 #include "leds.h"
 #include "pot.h"
+
+#if APP_ENABLE_BRAKE_FIR
+#include "fir_brake_coeffs.h"
+#include "fir_filter.h"
+#endif
+
+#if APP_LOG_DSP_CSV && !APP_ENABLE_BRAKE_FIR
+#error "APP_LOG_DSP_CSV needs APP_ENABLE_BRAKE_FIR 1 (it prints the raw and filtered brake)"
+#endif
 
 /* Sensor timing limits from the datasheets, enforced at build time (DEC-006). */
 #if APP_HCSR04_PERIOD_MS < HCSR04_MIN_CYCLE_MS
@@ -162,6 +176,27 @@ int main(void)
     alert_ctx_t ctx;
     alert_init(&ctx, NULL);
 
+#if APP_ENABLE_BRAKE_FIR
+    static fir_t brake_fir;
+    static float brake_fir_buf[FIR_BRAKE_N];
+    (void)fir_init(&brake_fir, fir_brake_h, brake_fir_buf, (uint16_t)FIR_BRAKE_N);
+    {
+        char b_fs[16];
+        char b_fc[16];
+        /* Group delay of a linear-phase FIR: (N-1)/(2*fs). Logged, not hidden (DEC-009). */
+        unsigned delay_ms = (unsigned)(((float)(FIR_BRAKE_N - 1u) * 500.0f / FIR_BRAKE_FS_HZ) + 0.5f);
+        board_log("fir N=%u fs=%s fc=%s delay_ms=%u", (unsigned)FIR_BRAKE_N,
+                  fmt1(b_fs, sizeof b_fs, FIR_BRAKE_FS_HZ), fmt1(b_fc, sizeof b_fc, FIR_BRAKE_FC_HZ), delay_ms);
+        if ((unsigned)((1000.0f / FIR_BRAKE_FS_HZ) + 0.5f) != (unsigned)APP_SENSOR_PERIOD_MS)
+        {
+            board_log("fir WARNING: coefficients designed for fs=%s Hz but APP_SENSOR_PERIOD_MS=%u",
+                      fmt1(b_fs, sizeof b_fs, FIR_BRAKE_FS_HZ), (unsigned)APP_SENSOR_PERIOD_MS);
+        }
+    }
+    float brake_x = 0.0f; /* last raw brake %, for the log */
+    float brake_y = 0.0f; /* last FIR output %, for the log */
+#endif
+
     const pot_t pot_brake = {BOARD_ADC_BRAKE, APP_POT_BRAKE_RAW_MIN, APP_POT_BRAKE_RAW_MAX};
     const pot_t pot_tps   = {BOARD_ADC_TPS, APP_POT_TPS_RAW_MIN, APP_POT_TPS_RAW_MAX};
 
@@ -234,6 +269,26 @@ int main(void)
             if (pot_read(&pot_brake, &brake, &brake_raw))
             {
                 ok |= ALERT_SENSOR_BRAKE;
+#if APP_ENABLE_BRAKE_FIR
+                /* Only successful reads enter the filter: a failed pot_read pushes no sample.
+                 * Warm-up choice: until N samples are in (fir_ready), the output still
+                 * contains the zero initial state and would read low, so alert_evaluate()
+                 * gets the raw value for those first (N-1)/fs seconds (400 ms at N=9, 20 Hz). */
+                brake_x = brake;
+                brake_y = fir_process(&brake_fir, brake);
+                if (fir_ready(&brake_fir))
+                {
+                    brake = brake_y;
+                }
+#if APP_LOG_DSP_CSV
+                {
+                    char b_x[16];
+                    char b_y[16];
+                    board_log("dsp,%u,%s,%s", (unsigned)board_time_ms(), fmt1(b_x, sizeof b_x, brake_x),
+                              fmt1(b_y, sizeof b_y, brake_y));
+                }
+#endif
+#endif
             }
             if (!pot_read(&pot_tps, &tps, NULL))
             {
@@ -257,6 +312,7 @@ int main(void)
         now = board_time_ms();
         alert_actuation_update(&alert, tlm.tps_pct, now);
 
+#if !APP_LOG_DSP_CSV /* DSP capture mode: only the dsp, lines go out (clean capture) */
         if ((uint32_t)(now - t_log) >= APP_LOG_PERIOD_MS)
         {
             t_log = now;
@@ -264,10 +320,27 @@ int main(void)
             char b_temp[16];
             char b_brake[16];
             char b_tps[16];
+#if APP_ENABLE_BRAKE_FIR
+            char line[224]; /* room for brake_f= */
+#else
             char line[192];
+#endif
             uint32_t adc32;
             uint8_t fifo;
             board_adc_last_diag(&adc32, &fifo);
+#if APP_ENABLE_BRAKE_FIR
+            /* brake= raw pot %, brake_f= FIR output (what alert_evaluate() sees once warmed up). */
+            char b_brake_f[16];
+            (void)snprintf(line, sizeof line,
+                           "t=%u dist=%s temp=%s brake=%s brake_f=%s brake_raw=%d tps=%s alert=%s sev=%s fault=%d"
+                           " adc32=0x%08x fifo=%u echo_us=%u echo_err=%d dht_st=%d",
+                           (unsigned)now, fmt1(b_dist, sizeof b_dist, tlm.distance_cm),
+                           temp_valid ? fmt1(b_temp, sizeof b_temp, temp_c) : "NA",
+                           fmt1(b_brake, sizeof b_brake, brake_x), fmt1(b_brake_f, sizeof b_brake_f, brake_y),
+                           (int)brake_raw, fmt1(b_tps, sizeof b_tps, tlm.tps_pct), alert_name(alert.type),
+                           severity_name(alert.severity), alert.sensor_fault ? 1 : 0, (unsigned)adc32,
+                           (unsigned)fifo, hcsr04_last_echo_us(), (int)hcsr04_last_err(), dht_st);
+#else
             /* snprintf with %s/%d/%u/%x only, no length modifiers (int is 32-bit here). */
             (void)snprintf(line, sizeof line,
                            "t=%u dist=%s temp=%s brake=%s brake_raw=%d tps=%s alert=%s sev=%s fault=%d"
@@ -278,7 +351,14 @@ int main(void)
                            fmt1(b_tps, sizeof b_tps, tlm.tps_pct), alert_name(alert.type),
                            severity_name(alert.severity), alert.sensor_fault ? 1 : 0, (unsigned)adc32,
                            (unsigned)fifo, hcsr04_last_echo_us(), (int)hcsr04_last_err(), dht_st);
+#endif
             board_log("%s", line);
         }
+#else
+        (void)t_log;
+        (void)dht_st;
+        (void)alert_name;
+        (void)severity_name;
+#endif
     }
 }
