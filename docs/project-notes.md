@@ -4,6 +4,14 @@ Short, dated entries. Anything that becomes a lasting decision gets an ADR.
 
 ## 2026-11-10
 
+- HANDOFF-006: bench capture `capture3` (FW `ec329fe`, FIR on, CSV on) stored as evidence in
+  `docs/04-testing/evidence/pds-2026-11-10/`; HIL-19 passed. DEC-010 confirmed on the bench:
+  576 / 600 intervals exactly 50 ms, 12 pairs of 74 / 26 ms (one per DHT11 read), 20.000 Hz,
+  fs/2 image gone. DEC-009 parameters (fs 20 Hz, N 9, fc 2 Hz, Hamming) validated, no longer
+  ASSUMPTION: useful brake content < ~1.5 Hz; 20–30 dB attenuation above ~3.5 Hz, below −80 dB
+  above 5.5 Hz; 2.5 Hz tapping attenuated only ~5 dB (transition band of 9 taps). Trade-off:
+  21 taps (500 ms group delay) would be more selective, but low delay on HARD_BRAKE is
+  prioritised over selectivity. `APP_LOG_DSP_CSV` back to 0 (normal debug log).
 - Bench: the 100 % → 0 % spikes in the first DSP capture were a loose contact (wires and pot
   now fixed in place). No code issue.
 - Bench capture 2 (`tools/dsp/out/capture2.csv`, not committed): the brake sample interval

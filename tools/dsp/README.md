@@ -22,9 +22,12 @@ pip install -r tools\dsp\requirements.txt
 
 ## Design / regenerate the coefficients
 
-Current design (DEC-009, **ASSUMPTION — to validate with the FFT of a raw capture**):
+Current design (DEC-009, validated on the bench 2026-11-10 with `capture3`):
 fs = 20 Hz (the 50 ms pot slot), N = 9 taps, fc = 2 Hz, Hamming window,
-group delay (N−1)/(2·fs) = 200 ms.
+group delay (N−1)/(2·fs) = 200 ms. Trade-off: a 2.5 Hz tapping component is attenuated only
+~5 dB (transition band of 9 taps); higher N (e.g. 21 taps → 500 ms delay) was not chosen
+because delay on HARD_BRAKE is prioritised over selectivity. Evidence:
+[`docs/04-testing/evidence/pds-2026-11-10/`](../../docs/04-testing/evidence/pds-2026-11-10/).
 
 ```powershell
 python tools\dsp\design_fir.py --fs 20 --fc 2 --taps 9 --window hamming --reference --plot

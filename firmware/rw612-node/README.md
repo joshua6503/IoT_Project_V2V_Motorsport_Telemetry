@@ -100,8 +100,11 @@ With the filter on, the boot log has one extra line
 `fir N=9 fs=20.0 fc=2.0 delay_ms=200` (group delay of the filter, logged on purpose),
 and the 200 ms log line gains `brake_f=` (filter output) next to `brake=` (raw pot %).
 
-Design: fs = 20 Hz (the existing 50 ms pot slot), N = 9, fc = 2 Hz, Hamming —
-**ASSUMPTION, to validate with the FFT of a raw capture**. Faster sampling is OPEN-016.
+Design: fs = 20 Hz (the existing 50 ms pot slot), N = 9, fc = 2 Hz, Hamming — validated on
+the bench 2026-11-10 (DEC-009, evidence in
+[`docs/04-testing/evidence/pds-2026-11-10/`](../../docs/04-testing/evidence/pds-2026-11-10/)).
+A longer filter would be more selective but add delay to HARD_BRAKE; 9 taps (200 ms) is kept on
+purpose. Faster sampling is OPEN-016.
 
 Capture and compare spectra:
 

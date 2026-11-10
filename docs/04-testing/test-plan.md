@@ -41,8 +41,8 @@
 | REQ-NF-009 | `.gitignore` + PR checklist | review | — |
 | REQ-NF-010 | HIL-15 | HIL | not run |
 | REQ-F-014 | `test_alert_*`, `test_pattern_*` (logic) · HIL-16 obstacle demo · HIL-17 overtemp demo · HIL-18 hard-brake demo | unit/HIL | unit: passing · HIL: not run |
-| REQ-F-015 | `test_fir_*` in `tests/unit/test_fir_filter.c` (init, impulse, step, ready/reset, golden vs `numpy.convolve`) · HIL-19 · HIL-20 | unit/HIL | unit: passing · HIL: not run |
-| REQ-F-016 | `analyze_capture.py` on `tools/dsp/samples/synthetic_capture.txt` (manual) · HIL-19 | tool/HIL | tool: works on synthetic data · HIL: not run |
+| REQ-F-015 | `test_fir_*` in `tests/unit/test_fir_filter.c` (init, impulse, step, ready/reset, golden vs `numpy.convolve`) · HIL-19 · HIL-20 | unit/HIL | unit: passing · HIL-19: passed 2026-11-10 · HIL-20: not run |
+| REQ-F-016 | `analyze_capture.py` on `tools/dsp/samples/synthetic_capture.txt` (manual) · HIL-19 | tool/HIL | tool: works on synthetic data · HIL-19: passed 2026-11-10 |
 
 ## MP1 HIL demos (RW612, no network)
 
@@ -56,7 +56,7 @@
 
 | ID | Procedure | Expected | Status |
 |---|---|---|---|
-| HIL-19 | Spectrum: build with `APP_LOG_DSP_CSV 1`, run `python tools\dsp\analyze_capture.py --port COMx --seconds 30` while moving the brake pot (slow presses + fast wiggles). Record the boot `fir` line. | Real fs ≈ 20 Hz with jitter reported (DHT11 slot skips, DEC-006); sample-interval std **< 5 ms** outside DHT11 reads (DEC-010 fixed grid, no 62/38 ms alternation; target, to validate); FFT of y[n] attenuated above fc = 2 Hz compared to x[n] (stop band ≈ −40 dB or lower for the N = 9 Hamming design); y lags x by ≈ 200 ms in the time plot. Keep the PNGs/CSV for the report. | not run |
+| HIL-19 | Spectrum: build with `APP_LOG_DSP_CSV 1`, run `python tools\dsp\analyze_capture.py --port COMx --seconds 30` while moving the brake pot (slow presses + fast wiggles). Record the boot `fir` line. | Real fs ≈ 20 Hz with jitter reported (DHT11 slot skips, DEC-006); sample-interval std **< 5 ms** outside DHT11 reads (DEC-010 fixed grid, no 62/38 ms alternation; target, to validate); FFT of y[n] attenuated above fc = 2 Hz compared to x[n] (stop band ≈ −40 dB or lower for the N = 9 Hamming design); y lags x by ≈ 200 ms in the time plot. Keep the PNGs/CSV for the report. | **passed 2026-11-10** (`capture3`, FW `ec329fe`): 576 / 600 intervals exactly 50 ms, 12 pairs of 74 / 26 ms (DHT11 reads), 20.000 Hz, no fs/2 image; useful content < ~1.5 Hz; 20–30 dB attenuation above ~3.5 Hz, below −80 dB above 5.5 Hz; 2.5 Hz tapping only ~5 dB (transition band, accepted, DEC-009); y lags x by 200 ms. Evidence: [`evidence/pds-2026-11-10/`](evidence/pds-2026-11-10/) |
 | HIL-20 | False / missed HARD_BRAKE: with `APP_LOG_DSP_CSV 0`, do the same sequence (10 slow presses to 60 %, 10 wiggles around 60 %, 10 fast presses to ~80 % and 10 to ~100 %) once with `APP_ENABLE_BRAKE_FIR 0` and once with `1`; count HARD_BRAKE events in the log. | Filter on: fewer or equal false HARD_BRAKE on slow presses/wiggles; fast presses to ~100 % still trigger. Record the count of fast ~80 % presses that no longer trigger (CONFLICT-003). | not run |
 
 ## How to run

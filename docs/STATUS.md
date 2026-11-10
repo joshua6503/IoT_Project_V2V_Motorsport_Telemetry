@@ -12,7 +12,8 @@ pin map applied by HANDOFF-002/003 (DEC-005..008). Remaining: TPS ADC channel (O
 **PDS on top of MP1 (2026-11-09)** — brake-pressure FIR (REQ-F-015/016, DEC-009) implemented by
 HANDOFF-004: `fir_filter` + unit tests, `tools/dsp/`, app switches. HANDOFF-005 (2026-11-10):
 drift-free pot slot (DEC-010), divider values as wired (DEC-011), CONFLICT-003 resolved (option A).
-Bench capture with DEC-010 (HIL-19) and HIL-20 pending.
+HANDOFF-006 (2026-11-10): HIL-19 passed (`capture3`, [evidence](04-testing/evidence/pds-2026-11-10/)),
+DEC-009 parameters validated, `APP_LOG_DSP_CSV` back to 0. HIL-20 pending.
 
 **L0–L3 — team review** continues in parallel (written in the scaffold, 2026-09-30).
 
@@ -26,7 +27,7 @@ Bench capture with DEC-010 (HIL-19) and HIL-20 pending.
 | L3 Contracts | PROPOSED | team review of [`../interfaces/`](../interfaces/); OPEN-007, OPEN-010 |
 | L4 Hardware | OPEN | MP1 pin map DECIDED (DEC-005), divider values as wired (DEC-011); OPEN-004, OPEN-013, OPEN-014, OPEN-015 |
 | L5 Implementation | MP1 in progress | MP1 sources complete with pin map (HANDOFF-001/003); bench build and flash pending; other milestones gated on L0–L3 and L4; OPEN-001, OPEN-002 |
-| L6 Verification | MP1 + PDS unit tests passing (`test_alert_logic`, `test_fir_filter`) | HIL-16..20 not run |
+| L6 Verification | MP1 + PDS unit tests passing (`test_alert_logic`, `test_fir_filter`); HIL-19 passed ([evidence](04-testing/evidence/pds-2026-11-10/)) | HIL-16..18 and HIL-20 not run |
 | L7 Deliverables | not started | — |
 
 ## Decisions (DEC-###)
@@ -41,7 +42,7 @@ Bench capture with DEC-010 (HIL-19) and HIL-20 pending.
 | DEC-006 | HC-SR04 sampled every 100 ms (datasheet cycle > 60 ms); DHT11 every 2500 ms (datasheet sampling > 2 s); pots stay at 50 ms. Enforced at build time in `main_mp1.c`. | DECIDED | 2026-10-14 | HANDOFF-002 |
 | DEC-007 | Timebase = CTIMER1 (SFRO 16 MHz → 1 MHz); CTIMER0 reserved for the passive-buzzer PWM on GPIO_0 (`IO_MUX_CT0_MAT0_OUT`). `kSFRO_to_CTIMER1` verified in `fsl_clock.h`. | DECIDED | 2026-10-14 | HANDOFF-003 |
 | DEC-008 | HC-SR04: no rising edge within 5 ms = sensor fault (−1); echo still high after 30 ms = out of range, valid reading (`HCSR04_MAX_CM` = 500 cm). `sensor_fault` in `alert_evaluate()` comes only from the `sensor_ok` bits. | DECIDED | 2026-10-14 | HANDOFF-003 |
-| DEC-009 | Brake FIR (PDS): build switch `APP_ENABLE_BRAKE_FIR` (default 1); when on, the filtered value feeds `tlm.brake_pct` and therefore `alert_evaluate()`; when 0, MP1 behaviour is byte-for-byte the same. fs = 20 Hz (existing 50 ms slot). Initial design N = 9 taps, fc = 2 Hz, Hamming window — ASSUMPTION (to validate with the FFT of a raw capture; regenerate the header with `tools/dsp/design_fir.py`). Group delay (N−1)/(2·fs) = 200 ms, logged at boot. | DECIDED | 2026-11-09 | HANDOFF-004, REQ-F-015, REQ-F-016 |
+| DEC-009 | Brake FIR (PDS): build switch `APP_ENABLE_BRAKE_FIR` (default 1); when on, the filtered value feeds `tlm.brake_pct` and therefore `alert_evaluate()`; when 0, MP1 behaviour is byte-for-byte the same. fs = 20 Hz (existing 50 ms slot). Design N = 9 taps, fc = 2 Hz, Hamming window (regenerate the header with `tools/dsp/design_fir.py`); parameters validated on the bench 2026-11-10 with `capture3` (useful content < ~1.5 Hz; 20–30 dB attenuation above ~3.5 Hz, below −80 dB above 5.5 Hz). Higher N (e.g. 21 taps → 500 ms group delay) not chosen: delay on HARD_BRAKE is prioritised over selectivity; a 2.5 Hz tapping component is attenuated only ~5 dB (transition band of the 9-tap design). Group delay (N−1)/(2·fs) = 200 ms, logged at boot. Evidence: [`04-testing/evidence/pds-2026-11-10/`](04-testing/evidence/pds-2026-11-10/). | DECIDED (parameters validated 2026-11-10) | 2026-11-09 | HANDOFF-004, HANDOFF-006, REQ-F-015, REQ-F-016, HIL-19 |
 | DEC-010 | Drift-free pot slot: in `main_mp1.c` the pot/`alert_evaluate()` block runs before the blocking HC-SR04 read in each loop iteration, and its schedule advances by a fixed step (`t_sensor += APP_SENSOR_PERIOD_MS`) instead of `t_sensor = now`. If the loop is more than one period late (e.g. after a DHT11 read) it resynchronises to `now` instead of firing catch-up samples. DEC-006 periods unchanged; the slot is still skipped while a DHT11 read is busy. Fixes the 62 / 38 ms alternation seen on the bench (spurious image near fs/2 in the raw FFT). | DECIDED | 2026-11-10 | HANDOFF-005, DEC-009, HIL-19 |
 | DEC-011 | MP1 divider values as wired (replace 2.2 kΩ / 3.3 kΩ and 27 kΩ / 2.7 kΩ; LEDs stay 330 Ω). ECHO → D8: 2 kΩ / 2.7 kΩ, ≈ 2.9 V from 5 V. Brake pot → J7-3: 5.1 kΩ / 2 kΩ pot / 220 Ω, 0.10–1.00 V. TPS pot → A0: 2.7 kΩ / 1 kΩ pot / 220 Ω, 0.19–1.03 V. Voltages calculated, not measured. Brake calibration `APP_POT_BRAKE_RAW_MIN 2850` / `MAX 29320` (bench, 2026-11-10). | DECIDED | 2026-11-10 | HANDOFF-005, [`../hardware/pinout.md`](../hardware/pinout.md), OPEN-015 |
 
