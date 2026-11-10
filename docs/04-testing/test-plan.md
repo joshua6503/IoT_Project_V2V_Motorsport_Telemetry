@@ -41,6 +41,8 @@
 | REQ-NF-009 | `.gitignore` + PR checklist | review | — |
 | REQ-NF-010 | HIL-15 | HIL | not run |
 | REQ-F-014 | `test_alert_*`, `test_pattern_*` (logic) · HIL-16 obstacle demo · HIL-17 overtemp demo · HIL-18 hard-brake demo | unit/HIL | unit: passing · HIL: not run |
+| REQ-F-015 | `test_fir_*` in `tests/unit/test_fir_filter.c` (init, impulse, step, ready/reset, golden vs `numpy.convolve`) · HIL-19 · HIL-20 | unit/HIL | unit: passing · HIL: not run |
+| REQ-F-016 | `analyze_capture.py` on `tools/dsp/samples/synthetic_capture.txt` (manual) · HIL-19 | tool/HIL | tool: works on synthetic data · HIL: not run |
 
 ## MP1 HIL demos (RW612, no network)
 
@@ -48,7 +50,14 @@
 |---|---|---|---|
 | HIL-16 | Obstacle demo: move a hand towards the HC-SR04 from > 30 cm to < 15 cm, aim it at open space, then unplug ECHO. | NONE → OBSTACLE WARNING (yellow, 1 Hz beep) → CRITICAL (red 4 Hz + beep); open space → `dist=500.0`, NONE, `fault=0` (DEC-008); ECHO unplugged → `dist=-1.0`, `fault=1`, red/yellow alternating when no other alert. | not run |
 | HIL-17 | Overtemp demo: warm the DHT11 (fingers/hair dryer) above 30 °C, then above 35 °C, then let it cool. | OVERTEMP WARNING at ≥ 30 °C, CRITICAL at ≥ 35 °C, stays WARNING until ≤ 28 °C (hysteresis). | not run |
-| HIL-18 | Hard-brake demo: turn potentiometer #1 0 → > 70 % fast (< 0.4 s), release; repeat slowly (> 1 s). | Fast: HARD_BRAKE CRITICAL latched ~2 s. Slow: no HARD_BRAKE. | not run |
+| HIL-18 | Hard-brake demo: turn potentiometer #1 0 → > 70 % fast (< 0.4 s), release; repeat slowly (> 1 s). | Fast: HARD_BRAKE CRITICAL latched ~2 s. Slow: no HARD_BRAKE. **With `APP_ENABLE_BRAKE_FIR 1` a fast press that peaks at 75–80 % may not trigger (CONFLICT-003)**. | not run |
+
+## PDS HIL (brake FIR, DEC-009)
+
+| ID | Procedure | Expected | Status |
+|---|---|---|---|
+| HIL-19 | Spectrum: build with `APP_LOG_DSP_CSV 1`, run `python tools\dsp\analyze_capture.py --port COMx --seconds 30` while moving the brake pot (slow presses + fast wiggles). Record the boot `fir` line. | Real fs ≈ 20 Hz with jitter reported (DHT11 slot skips, DEC-006); FFT of y[n] attenuated above fc = 2 Hz compared to x[n] (stop band ≈ −40 dB or lower for the N = 9 Hamming design); y lags x by ≈ 200 ms in the time plot. Keep the PNGs/CSV for the report. | not run |
+| HIL-20 | False / missed HARD_BRAKE: with `APP_LOG_DSP_CSV 0`, do the same sequence (10 slow presses to 60 %, 10 wiggles around 60 %, 10 fast presses to ~80 % and 10 to ~100 %) once with `APP_ENABLE_BRAKE_FIR 0` and once with `1`; count HARD_BRAKE events in the log. | Filter on: fewer or equal false HARD_BRAKE on slow presses/wiggles; fast presses to ~100 % still trigger. Record the count of fast ~80 % presses that no longer trigger (CONFLICT-003). | not run |
 
 ## How to run
 

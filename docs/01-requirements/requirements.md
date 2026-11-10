@@ -21,6 +21,8 @@ never renumber, mark obsolete requirements as *Deleted*.
 | REQ-F-012 | Nodes shall form an 802.15.4/Thread mesh with a border router. | M4 (roadmap) |
 | REQ-F-013 | Telemetry history shall be stored in InfluxDB and shown in Grafana. | M4 (roadmap) |
 | REQ-F-014 | The node shall decide and drive its own actuators locally from its sensor readings, without any network, gateway or external device. | MP1 / M3 |
+| REQ-F-015 | The RW612 node shall low-pass filter the brake-pressure signal with an FIR filter implemented as discrete convolution in `firmware/common/`, with host unit tests. Order, cutoff and sample rate: see DEC-009 (target, to validate). | PDS / MP1 |
+| REQ-F-016 | The node shall be able to export the raw and filtered brake samples over the debug UART, and a host tool shall compute and plot their FFT spectra. | PDS / MP1 |
 
 ## Non-functional
 
