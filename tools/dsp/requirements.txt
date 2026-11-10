@@ -1,0 +1,5 @@
+# Host DSP tools for the PDS brake FIR (REQ-F-015, REQ-F-016, DEC-009).
+numpy>=1.26
+scipy>=1.11
+matplotlib>=3.8
+pyserial>=3.5

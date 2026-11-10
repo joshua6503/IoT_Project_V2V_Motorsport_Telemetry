@@ -52,3 +52,7 @@ firmware/esp32-node/esp32-node/config.h
 Thumbs.db
 .vscode/*
 !.vscode/settings.json
+
+# ---- PDS DSP tools (venv and generated plots/CSVs) ----
+tools/dsp/.venv/
+tools/dsp/out/
