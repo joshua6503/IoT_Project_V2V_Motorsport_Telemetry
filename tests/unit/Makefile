@@ -18,8 +18,8 @@ IFACE    := $(ROOT)/interfaces/c
 CFLAGS   += -std=c99 -Wall -Wextra -Werror -pedantic -O0 -g
 CPPFLAGS += -I$(COMMON)/include -I$(IFACE) -I$(UNITY_DIR)/src
 
-SRC_COMMON := $(COMMON)/src/alert_logic.c $(COMMON)/src/alert_pattern.c
-TESTS      := test_alert_logic
+SRC_COMMON := $(COMMON)/src/alert_logic.c $(COMMON)/src/alert_pattern.c $(COMMON)/src/fir_filter.c
+TESTS      := test_alert_logic test_fir_filter
 
 .PHONY: all test clean
 all: test
