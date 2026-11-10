@@ -6,13 +6,17 @@
  * LEDs/buzzer (REQ-F-014). Replaces hello_world.c in the imported SDK project.
  *
  * Boot: optional ADC scan CH0..CH7 (APP_ADC_SCAN_AT_BOOT, OPEN-014).
- * Loop (non-blocking except the bounded sensor reads), schedules per DEC-006:
- *   - every APP_DHT11_PERIOD_MS: start a DHT11 read; while it runs, the sensor
- *     reads are skipped so the HC-SR04 wait cannot stretch the DHT11 start pulse.
- *   - every APP_HCSR04_PERIOD_MS: HC-SR04 (last distance reused in between).
- *   - every APP_SENSOR_PERIOD_MS: pots -> telemetry_t -> alert_evaluate().
- *   - every iteration: alert_actuation_update() (smooth blinking).
- *   - every APP_LOG_PERIOD_MS: one log line on the debug UART.
+ * Loop (non-blocking except the bounded sensor reads), periods per DEC-006, in this
+ * order within each iteration:
+ *   1. every APP_DHT11_PERIOD_MS: start a DHT11 read; while it runs, the pot and
+ *      HC-SR04 slots are skipped so the HC-SR04 wait cannot stretch the DHT11 start pulse.
+ *   2. every APP_SENSOR_PERIOD_MS: pots -> telemetry_t -> alert_evaluate(). Fixed grid
+ *      (t_sensor += period), resynchronised to now if more than one period late (DEC-010).
+ *      It runs before the HC-SR04 so the blocking echo wait does not delay the sample.
+ *   3. every APP_HCSR04_PERIOD_MS: HC-SR04, blocking up to ~35 ms (DEC-008); the last
+ *      distance is reused in between (the pot slot uses the previous one).
+ *   4. every iteration: alert_actuation_update() (smooth blinking).
+ *   5. every APP_LOG_PERIOD_MS: one log line on the debug UART.
  *
  * PDS (DEC-009, REQ-F-015/016): with APP_ENABLE_BRAKE_FIR the brake pot goes through
  * an FIR low-pass (fir_filter.c) before alert_evaluate(); with APP_LOG_DSP_CSV every
@@ -246,17 +250,17 @@ int main(void)
             }
         }
 
-        /* HC-SR04 on its own schedule; the last distance is reused in between. */
-        if (!dht_busy && ((uint32_t)(now - t_hcsr04) >= APP_HCSR04_PERIOD_MS))
-        {
-            t_hcsr04 = now;
-            dist_cm  = hcsr04_read_cm();
-        }
-
-        /* Pots -> decision. */
+        /* Pots -> decision. Runs before the blocking HC-SR04 read (DEC-010) and keeps
+         * a fixed grid: the next slot is t_sensor + period, not now + period, so a late
+         * sample does not delay every later one. More than one period late (e.g. after
+         * a DHT11 read): resynchronise to now instead of a burst of catch-up samples. */
         if (!dht_busy && ((uint32_t)(now - t_sensor) >= APP_SENSOR_PERIOD_MS))
         {
-            t_sensor = now;
+            t_sensor += APP_SENSOR_PERIOD_MS;
+            if ((uint32_t)(now - t_sensor) >= APP_SENSOR_PERIOD_MS)
+            {
+                t_sensor = now;
+            }
 
             float brake = 0.0f;
             float tps   = 0.0f;
@@ -307,6 +311,13 @@ int main(void)
             tlm.sensor_ok   = ok;
 
             (void)alert_evaluate(&ctx, &tlm, &alert);
+        }
+
+        /* HC-SR04 on its own schedule; the last distance is reused in between. */
+        if (!dht_busy && ((uint32_t)(now - t_hcsr04) >= APP_HCSR04_PERIOD_MS))
+        {
+            t_hcsr04 = now;
+            dist_cm  = hcsr04_read_cm();
         }
 
         now = board_time_ms();
