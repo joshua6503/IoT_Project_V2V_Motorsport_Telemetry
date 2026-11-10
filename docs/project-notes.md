@@ -2,6 +2,30 @@
 
 Short, dated entries. Anything that becomes a lasting decision gets an ADR.
 
+## 2026-11-10
+
+- Bench: the 100 % → 0 % spikes in the first DSP capture were a loose contact (wires and pot
+  now fixed in place). No code issue.
+- Bench capture 2 (`tools/dsp/out/capture2.csv`, not committed): the brake sample interval
+  alternated 62 / 38 ms (mean 50.0 ms). Cause: the blocking HC-SR04 read ran before the pot slot
+  and `t_sensor = now` carried its delay forward. The periodic non-uniform sampling put a
+  spurious image near fs/2 (≈ 9.6 Hz) in the raw FFT.
+- HANDOFF-005 applied:
+  - DEC-010: pot slot runs before the HC-SR04 and keeps a fixed 50 ms grid
+    (`t_sensor += period`, resync if more than one period late). Host model of the loop: the
+    old order reproduces the bench 62 / 38 ms exactly (12 ms echo); with DEC-010 the interval
+    is 50 ms outside DHT11 reads (std 0.0–1.0 ms for echo blocks of 5–30 ms; ≈ 5.1 ms with ECHO in
+    fault, 35 ms block, because the HC-SR04 phase moves after each DHT11 read), 74 / 26 ms around
+    each DHT11 read. With `APP_ENABLE_BRAKE_FIR 0` the only change from the previous firmware is
+    DEC-010 plus the brake calibration.
+  - DEC-011: divider values as wired (ECHO 2 kΩ / 2.7 kΩ ≈ 2.9 V; brake 5.1 kΩ / 2 kΩ pot /
+    220 Ω, 0.10–1.00 V; TPS 2.7 kΩ / 1 kΩ pot / 220 Ω, 0.19–1.03 V; calculated). Brake pot
+    calibrated on the bench: raw 2850 / 29320.
+  - CONFLICT-003 resolved, option A: filtered brake keeps feeding `alert_evaluate()`;
+    HIL-18 uses fast presses to ≥ 90 %; thresholds stay ASSUMPTION (OPEN-005).
+    On the bench Joshua reports that HARD_BRAKE does trigger on fast presses with the filter
+    on (informal check, not HIL-18 evidence).
+
 ## 2026-11-09
 
 - HANDOFF-004 (PDS brake-pressure FIR on top of MP1) applied:

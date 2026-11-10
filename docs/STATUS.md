@@ -10,8 +10,9 @@ Process and status definitions: [`process/workflow.md`](process/workflow.md).
 pin map applied by HANDOFF-002/003 (DEC-005..008). Remaining: TPS ADC channel (OPEN-014, optional).
 
 **PDS on top of MP1 (2026-11-09)** — brake-pressure FIR (REQ-F-015/016, DEC-009) implemented by
-HANDOFF-004: `fir_filter` + unit tests, `tools/dsp/`, app switches. Bench capture (HIL-19/20)
-pending; CONFLICT-003 (filter vs HARD_BRAKE rate rule) open.
+HANDOFF-004: `fir_filter` + unit tests, `tools/dsp/`, app switches. HANDOFF-005 (2026-11-10):
+drift-free pot slot (DEC-010), divider values as wired (DEC-011), CONFLICT-003 resolved (option A).
+Bench capture with DEC-010 (HIL-19) and HIL-20 pending.
 
 **L0–L3 — team review** continues in parallel (written in the scaffold, 2026-09-30).
 
@@ -23,7 +24,7 @@ pending; CONFLICT-003 (filter vs HARD_BRAKE rate rule) open.
 | L1 Requirements | PROPOSED | team review of [`01-requirements/requirements.md`](01-requirements/requirements.md); OPEN-005, OPEN-008, OPEN-009 (OPEN-006 closed for MP1 by DEC-004) |
 | L2 Architecture | PROPOSED | team review of [`02-architecture/architecture.md`](02-architecture/architecture.md); ADR-0001 Accepted (CONFLICT-001), ADR-0002..0005 Proposed; OPEN-011 |
 | L3 Contracts | PROPOSED | team review of [`../interfaces/`](../interfaces/); OPEN-007, OPEN-010 |
-| L4 Hardware | OPEN | MP1 pin map DECIDED (DEC-005); OPEN-004, OPEN-013, OPEN-014, OPEN-015 |
+| L4 Hardware | OPEN | MP1 pin map DECIDED (DEC-005), divider values as wired (DEC-011); OPEN-004, OPEN-013, OPEN-014, OPEN-015 |
 | L5 Implementation | MP1 in progress | MP1 sources complete with pin map (HANDOFF-001/003); bench build and flash pending; other milestones gated on L0–L3 and L4; OPEN-001, OPEN-002 |
 | L6 Verification | MP1 + PDS unit tests passing (`test_alert_logic`, `test_fir_filter`) | HIL-16..20 not run |
 | L7 Deliverables | not started | — |
@@ -41,6 +42,8 @@ pending; CONFLICT-003 (filter vs HARD_BRAKE rate rule) open.
 | DEC-007 | Timebase = CTIMER1 (SFRO 16 MHz → 1 MHz); CTIMER0 reserved for the passive-buzzer PWM on GPIO_0 (`IO_MUX_CT0_MAT0_OUT`). `kSFRO_to_CTIMER1` verified in `fsl_clock.h`. | DECIDED | 2026-10-14 | HANDOFF-003 |
 | DEC-008 | HC-SR04: no rising edge within 5 ms = sensor fault (−1); echo still high after 30 ms = out of range, valid reading (`HCSR04_MAX_CM` = 500 cm). `sensor_fault` in `alert_evaluate()` comes only from the `sensor_ok` bits. | DECIDED | 2026-10-14 | HANDOFF-003 |
 | DEC-009 | Brake FIR (PDS): build switch `APP_ENABLE_BRAKE_FIR` (default 1); when on, the filtered value feeds `tlm.brake_pct` and therefore `alert_evaluate()`; when 0, MP1 behaviour is byte-for-byte the same. fs = 20 Hz (existing 50 ms slot). Initial design N = 9 taps, fc = 2 Hz, Hamming window — ASSUMPTION (to validate with the FFT of a raw capture; regenerate the header with `tools/dsp/design_fir.py`). Group delay (N−1)/(2·fs) = 200 ms, logged at boot. | DECIDED | 2026-11-09 | HANDOFF-004, REQ-F-015, REQ-F-016 |
+| DEC-010 | Drift-free pot slot: in `main_mp1.c` the pot/`alert_evaluate()` block runs before the blocking HC-SR04 read in each loop iteration, and its schedule advances by a fixed step (`t_sensor += APP_SENSOR_PERIOD_MS`) instead of `t_sensor = now`. If the loop is more than one period late (e.g. after a DHT11 read) it resynchronises to `now` instead of firing catch-up samples. DEC-006 periods unchanged; the slot is still skipped while a DHT11 read is busy. Fixes the 62 / 38 ms alternation seen on the bench (spurious image near fs/2 in the raw FFT). | DECIDED | 2026-11-10 | HANDOFF-005, DEC-009, HIL-19 |
+| DEC-011 | MP1 divider values as wired (replace 2.2 kΩ / 3.3 kΩ and 27 kΩ / 2.7 kΩ; LEDs stay 330 Ω). ECHO → D8: 2 kΩ / 2.7 kΩ, ≈ 2.9 V from 5 V. Brake pot → J7-3: 5.1 kΩ / 2 kΩ pot / 220 Ω, 0.10–1.00 V. TPS pot → A0: 2.7 kΩ / 1 kΩ pot / 220 Ω, 0.19–1.03 V. Voltages calculated, not measured. Brake calibration `APP_POT_BRAKE_RAW_MIN 2850` / `MAX 29320` (bench, 2026-11-10). | DECIDED | 2026-11-10 | HANDOFF-005, [`../hardware/pinout.md`](../hardware/pinout.md), OPEN-015 |
 
 ## Open questions (OPEN-###)
 
@@ -60,7 +63,7 @@ pending; CONFLICT-003 (filter vs HARD_BRAKE rate rule) open.
 | OPEN-012 | Add `brake_pct` / `tps_pct` to `interfaces/payload.schema.json` before MP2 (they exist only in `telemetry_t` for now; MP1 has no comms). | OPEN | L3 | TBD | DEC-002 | HANDOFF-001 |
 | OPEN-013 | Buzzer type: active vs passive (3 unmarked units with a "+" on top, one marked "TMB12A..."). Pending a bench test. Driver supports both (`BUZZER_KIND` in `app_config.h`, default active = ASSUMPTION). | OPEN | L4 | TBD | [`../hardware/bom.md`](../hardware/bom.md) | HANDOFF-001 |
 | OPEN-014 | ADC channel of Arduino A0 (GPIO_42) for the TPS pot — not in the indexed docs. Firmware prints a CH0–CH7 scan at boot (`APP_ADC_SCAN_AT_BOOT 1`). `BOARD_ADC_CH_TPS` stays `#error` behind `APP_ENABLE_SHIFT_LIGHT`. | OPEN | L4 | Joshua | [`../hardware/pinout.md`](../hardware/pinout.md) | HANDOFF-002 |
-| OPEN-015 | RW612 GPIO 5 V tolerance — not in the indexed docs (RW61x datasheet missing). Treated as NOT tolerant: HC-SR04 ECHO through a 2.2 kΩ / 3.3 kΩ divider. | OPEN | L4 | TBD | [`../hardware/pinout.md`](../hardware/pinout.md) | HANDOFF-002 |
+| OPEN-015 | RW612 GPIO 5 V tolerance — not in the indexed docs (RW61x datasheet missing). Treated as NOT tolerant: HC-SR04 ECHO through a 2 kΩ / 2.7 kΩ divider (≈ 2.9 V calc., DEC-011); whether 2.9 V meets the RW612 input-high threshold is also open here (the HC-SR04 works on the bench). | OPEN | L4 | TBD | [`../hardware/pinout.md`](../hardware/pinout.md) | HANDOFF-002 |
 | OPEN-016 | Brake sampling rate for PDS beyond 20 Hz: timer-triggered ADC sampling — ask rw612-tutor for the max ADC rate and a CTIMER/ADC example. | OPEN | L5 | Joshua | DEC-009, REQ-F-015 | HANDOFF-004 |
 
 ## Conflicts (CONFLICT-###)
@@ -69,4 +72,4 @@ pending; CONFLICT-003 (filter vs HARD_BRAKE rate rule) open.
 |---|---|---|---|
 | CONFLICT-001 | School design (Actividad 3) said V2V over 802.15.4/Thread; repo says BLE. Resolved: **V2V = BLE**; ADR-0001 Accepted; Thread/802.15.4 stays M4 roadmap. | RESOLVED 2026-10-14 | [ADR-0001](adr/0001-ble-for-v2v-instead-of-thread.md) |
 | CONFLICT-002 | Course order (MP1 = perception only, no comms) vs repo M1 (V2V first). Resolved: **MP1 = local part of M3** (sensors + `alert_evaluate` + local actuators); V2V moves to MP2. | RESOLVED 2026-10-14 | REQ-F-014, DEC-002 |
-| CONFLICT-003 | DEC-009 (FIR output feeds `alert_evaluate()`, default on) vs HIL-18 expectation (any fast press 0 → > 70 % triggers HARD_BRAKE). HARD_BRAKE needs level ≥ 70 % **and** per-sample rate ≥ 150 %/s on the same sample; the low-pass lowers the rate when the level crosses 70 %. Host simulation (N = 9, fc = 2 Hz, 20 Hz): 0 → 75 % in 0.1–0.4 s and 0 → 80 % in 0.2 / 0.4 s trigger raw but **not** filtered; presses to ≥ 90 % (0–0.4 s) trigger both. Needs a decision (e.g. press to ≥ 90 % in HIL-18, evaluate the rate on the raw value, retune OPEN-005 thresholds, or run HIL-18 with the filter off). Code unchanged. | OPEN | HANDOFF-004, DEC-009, HIL-18, HIL-20, OPEN-005 |
+| CONFLICT-003 | DEC-009 (FIR output feeds `alert_evaluate()`, default on) vs HIL-18 expectation (any fast press 0 → > 70 % triggers HARD_BRAKE). HARD_BRAKE needs level ≥ 70 % **and** per-sample rate ≥ 150 %/s on the same sample; the low-pass lowers the rate when the level crosses 70 %. Host simulation (N = 9, fc = 2 Hz, 20 Hz): 0 → 75 % in 0.1–0.4 s and 0 → 80 % in 0.2 / 0.4 s trigger raw but **not** filtered; presses to ≥ 90 % (0–0.4 s) trigger both. Resolved, **option A**: the filtered brake keeps feeding `alert_evaluate()` (DEC-009 unchanged); HIL-18 is run with fast presses to **≥ 90 %**. Thresholds stay ASSUMPTION under OPEN-005, to revisit with bench data. | RESOLVED 2026-11-10 | HANDOFF-004, HANDOFF-005, DEC-009, HIL-18, HIL-20, OPEN-005 |

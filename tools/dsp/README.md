@@ -76,6 +76,9 @@ y/x above fc.
 - The FFT assumes uniform sampling at the mean rate. The superloop skips the pot slot
   while a DHT11 read is in progress (DEC-006), so some intervals are longer than 50 ms;
   the jitter report shows how far from uniform the capture is.
+- Before DEC-010 the blocking HC-SR04 read ran before the pot slot and the slot rescheduled
+  from `now`, so the interval alternated 62 / 38 ms and the raw FFT showed a spurious image near
+  fs/2; DEC-010 keeps the slot on a fixed 50 ms grid (expected std < 5 ms outside DHT11 reads).
 - Values are printed with one decimal (`fmt1()`, no `%f` on the debug console), i.e.
   0.1 % quantisation of the 0–100 % brake signal.
 - Faster, timer-triggered ADC sampling is out of scope for now (OPEN-016).
