@@ -58,7 +58,7 @@
 /** 1: one `dsp,<t_ms>,<x_pct>,<y_pct>` line per brake sample for
  *  tools/dsp/analyze_capture.py, and the 200 ms log line is suppressed so the
  *  capture is clean (REQ-F-016, DEC-009). Needs APP_ENABLE_BRAKE_FIR 1. */
-#define APP_LOG_DSP_CSV 1
+#define APP_LOG_DSP_CSV 0
 
 /* ------------------------------------------------------------------------- */
 /* Potentiometer calibration (raw ADC counts at 0 % and 100 %)               */
