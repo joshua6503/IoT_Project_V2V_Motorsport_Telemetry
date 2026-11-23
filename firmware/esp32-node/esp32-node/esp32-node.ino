@@ -1,23 +1,175 @@
 /**
- * esp32-node.ino - secondary V2V node (ESP32 classic, Arduino core).
+ * esp32-node.ino - secondary V2V node B (ESP32 classic, Arduino core).
  *
- * Scaffold only: prints the protocol version and does nothing else.
- * BLE central (M1) and MQTT client (M2) come later, see interfaces/.
+ * Phase F2: Wi-Fi + MQTT only (no BLE yet, see interfaces/ and ARQUITECTURA §8).
+ *  - brake pot  -> brake % -> alert_evaluate() (firmware/common) -> hard_brake alert
+ *  - BOOT button -> manual alert (info) + node-local confirmation
+ *  - LEDs / buzzer driven by alert_pattern_for() (DEC-004)
+ *  - telemetry 5 Hz, alerts QoS 1, status retained + LWT (node_net.cpp)
+ * The main loop never blocks: no delay(), everything is scheduled with millis().
  */
 #include "config.h"
+#include "node_io.h"
+#include "node_net.h"
+#include "src/alert_logic.h"
+#include "src/alert_pattern.h"
 #include "src/v2v_protocol.h"
+
+static alert_ctx_t s_alert_ctx;
+static alert_t     s_alert = {V2V_ALERT_NONE, V2V_SEVERITY_INFO, false};
+
+static float    s_brake_pct  = 0.0f;
+static uint32_t s_brake_mv   = 0;
+static uint8_t  s_sensor_ok  = 0;
+static uint32_t s_tlm_seq    = 0;
+static uint16_t s_alert_seq  = 0;
+static uint32_t s_tlm_sent   = 0;
+static uint32_t s_tlm_drop   = 0;
+
+static uint32_t s_next_brake_ms  = 0;
+static uint32_t s_next_tlm_ms    = 0;
+static uint32_t s_next_status_ms = 0;
+
+static const char *alert_type_str(v2v_alert_type_t t)
+{
+    switch (t)
+    {
+    case V2V_ALERT_MANUAL:     return "manual";
+    case V2V_ALERT_HARD_BRAKE: return "hard_brake";
+    case V2V_ALERT_OBSTACLE:   return "obstacle";
+    case V2V_ALERT_OVERTEMP:   return "overtemp";
+    default:                   return "none";
+    }
+}
+
+static const char *severity_str(v2v_severity_t s)
+{
+    switch (s)
+    {
+    case V2V_SEVERITY_WARNING:  return "warning";
+    case V2V_SEVERITY_CRITICAL: return "critical";
+    default:                    return "info";
+    }
+}
+
+/** true when @p *next is due; advances it by @p period without accumulating drift. */
+static bool due(uint32_t now, uint32_t *next, uint32_t period)
+{
+    if ((int32_t)(now - *next) < 0)
+    {
+        return false;
+    }
+    *next += period;
+    if ((int32_t)(now - *next) >= 0) /* fell far behind: resync instead of bursting */
+    {
+        *next = now + period;
+    }
+    return true;
+}
+
+static void raise_alert(v2v_alert_type_t type, v2v_severity_t sev, uint32_t now)
+{
+    char json[160];
+    int  n = snprintf(json, sizeof(json),
+                     "{\"node_id\":\"%s\",\"ts_ms\":%lu,\"seq\":%u,\"alert_type\":\"%s\",\"severity\":\"%s\"}",
+                     NODE_ID_STR, (unsigned long)now, (unsigned)s_alert_seq,
+                     alert_type_str(type), severity_str(sev));
+    bool sent = net_publish_alert(json, n);
+    Serial.printf("[alert] %s/%s seq=%u %s\n", alert_type_str(type), severity_str(sev),
+                  (unsigned)s_alert_seq, sent ? "published" : "NOT published (mqtt down)");
+    s_alert_seq++; /* uint16, wraps like v2v_packet_t.seq */
+}
+
+static void sample_brake(uint32_t now)
+{
+    s_brake_mv = io_read_brake_mv();
+    bool valid = io_brake_mv_valid(s_brake_mv);
+    s_brake_pct = valid ? io_brake_pct_from_mv(s_brake_mv) : 0.0f;
+    s_sensor_ok = valid ? ALERT_SENSOR_BRAKE : 0u;
+
+    /* Node B has no distance/temperature sensor: those bits stay clear, so no
+     * OBSTACLE/OVERTEMP can fire; only the brake sensor decides sensor_fault. */
+    telemetry_t t = {};
+    t.ts_ms       = now;
+    t.distance_cm = -1.0f;
+    t.brake_pct   = s_brake_pct;
+    t.sensor_ok   = s_sensor_ok;
+
+    v2v_alert_type_t prev = s_alert.type;
+    alert_evaluate(&s_alert_ctx, &t, &s_alert);
+    s_alert.sensor_fault = (s_sensor_ok & ALERT_SENSOR_BRAKE) == 0u;
+
+    if ((s_alert.type == V2V_ALERT_HARD_BRAKE) && (prev != V2V_ALERT_HARD_BRAKE))
+    {
+        raise_alert(V2V_ALERT_HARD_BRAKE, s_alert.severity, now);
+    }
+}
+
+static void publish_telemetry(uint32_t now)
+{
+    char json[160];
+    int  n = snprintf(json, sizeof(json),
+                     "{\"node_id\":\"%s\",\"ts_ms\":%lu,\"seq\":%lu,\"brake_pct\":%.1f,\"sensor_ok\":%u}",
+                     NODE_ID_STR, (unsigned long)now, (unsigned long)s_tlm_seq,
+                     (double)s_brake_pct, (unsigned)s_sensor_ok);
+    s_tlm_seq++; /* counts every sample, so a gap on the broker means loss */
+    if (net_publish_telemetry(json, n))
+    {
+        s_tlm_sent++;
+    }
+    else
+    {
+        s_tlm_drop++;
+    }
+}
 
 void setup()
 {
     Serial.begin(115200);
-    Serial.printf("[%s] v2v protocol v%u.%u, packet %u bytes\n",
-                  NODE_ID_STR,
-                  (unsigned)V2V_PROTOCOL_VERSION_MAJOR,
-                  (unsigned)V2V_PROTOCOL_VERSION_MINOR,
-                  (unsigned)sizeof(v2v_packet_t));
+    Serial.printf("\n[%s] v2v protocol v%u.%u, F2 wifi+mqtt\n", NODE_ID_STR,
+                  (unsigned)V2V_PROTOCOL_VERSION_MAJOR, (unsigned)V2V_PROTOCOL_VERSION_MINOR);
+
+    io_init();
+    alert_init(&s_alert_ctx, NULL); /* bench defaults from firmware/common (ASSUMPTION, OPEN-005) */
+    net_init();
+
+    uint32_t now     = millis();
+    s_next_brake_ms  = now;
+    s_next_tlm_ms    = now + TELEMETRY_PERIOD_MS;
+    s_next_status_ms = now + STATUS_LOG_MS;
 }
 
 void loop()
 {
-    delay(1000);
+    uint32_t now = millis();
+
+    net_loop(now);
+
+    if (due(now, &s_next_brake_ms, BRAKE_SAMPLE_MS))
+    {
+        sample_brake(now);
+    }
+
+    if (io_button_pressed(now))
+    {
+        Serial.println("[btn] BOOT pressed");
+        io_manual_feedback(now);
+        raise_alert(V2V_ALERT_MANUAL, V2V_SEVERITY_INFO, now);
+    }
+
+    if (due(now, &s_next_tlm_ms, TELEMETRY_PERIOD_MS))
+    {
+        publish_telemetry(now);
+    }
+
+    alert_pattern_t p = alert_pattern_for(&s_alert, now);
+    io_apply(&p, now);
+
+    if (due(now, &s_next_status_ms, STATUS_LOG_MS))
+    {
+        Serial.printf("[st] wifi=%d mqtt=%d brake=%.1f%% (%lu mV) sensor_ok=%u alert=%s tlm sent=%lu drop=%lu\n",
+                      (int)net_wifi_connected(), (int)net_mqtt_connected(), (double)s_brake_pct,
+                      (unsigned long)s_brake_mv, (unsigned)s_sensor_ok, alert_type_str(s_alert.type),
+                      (unsigned long)s_tlm_sent, (unsigned long)s_tlm_drop);
+    }
 }

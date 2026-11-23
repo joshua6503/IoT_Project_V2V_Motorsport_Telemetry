@@ -2,6 +2,10 @@
 
 Test/support node for V2V. See [ADR-0002](../../docs/adr/0002-esp32-arduino-as-secondary-node.md).
 
+**Phase F2 (Wi-Fi + MQTT, no BLE):** node `esp32-b` joins the Pi access point `V2V-PIT` and
+publishes to Mosquitto: `v2v/esp32-b/telemetry` (QoS 0, 5 Hz target), `/alert` (QoS 1) and
+`/status` (QoS 1, retained `online`, LWT `offline`). Contract: `interfaces/mqtt-topics.md`.
+
 ## Layout
 
 ```
@@ -10,9 +14,47 @@ esp32-node/
     ├── esp32-node.ino
     ├── config.example.h   <- template, committed
     ├── config.h           <- your copy, git-ignored (Wi-Fi/MQTT secrets)
-    └── src/
-        └── v2v_protocol.h <- AUTO-GENERATED copy of interfaces/c/v2v_protocol.h
+    ├── node_net.{h,cpp}   <- Wi-Fi + MQTT (esp-mqtt), LWT, reconnect with backoff
+    ├── node_io.{h,cpp}    <- brake pot, BOOT button, LEDs, buzzer
+    └── src/               <- AUTO-GENERATED copies, never edit:
+        ├── v2v_protocol.h          (from interfaces/c/)
+        └── alert_logic.{h,c}, alert_pattern.{h,c}   (from firmware/common/)
 ```
+
+## Hardware (pins in `config.example.h`, citations in `hardware/pinout.md`)
+
+| Function | GPIO |
+|---|---|
+| Brake pot wiper (ADC1_CH4) | 32 |
+| LED green / yellow / red | 25 / 26 / 27 (220 Ω each to GND) |
+| Buzzer (active) through NPN | 23 → 1 kΩ → base; buzzer VIN→collector; emitter GND |
+| Manual alert | 0 (on-board BOOT button) |
+
+Brake pot: 3.3 V → 5.6 kΩ → 50 kΩ pot → 2.7 kΩ → GND, wiper to GPIO32, no capacitor (100 nF
+wiper→GND optional, not fitted); calculated wiper range 0.15–2.98 V, not measured. The series resistors make a shorted/open wiper detectable.
+Do not hold BOOT while pressing EN/reset (it enters download mode).
+
+## Behaviour
+
+- Brake % from the pot, 20 Hz, fed to `alert_evaluate()` (firmware/common): ≥ 70 % and ≥ 150 %/s
+  raises `hard_brake` (critical, latched 2 s). Thresholds are bench defaults (ASSUMPTION, OPEN-005).
+- BOOT press → `manual` / `info` alert, plus a node-local confirmation (yellow blink ~300 ms and a
+  short beep, ASSUMPTION), not part of DEC-004.
+- LEDs/buzzer follow `alert_pattern_for()` (DEC-004). Brake reading out of range → `sensor_ok` 0 and
+  the red/yellow fault pattern.
+- `sensor_ok` is the bitmask of `alert_logic.h`: `ALERT_SENSOR_BRAKE` (4) when the brake is valid, else 0.
+- Telemetry `{"node_id","ts_ms","seq","brake_pct","sensor_ok"}`; alert `{"node_id","ts_ms","seq","alert_type","severity"}`
+  (alert `seq` is uint16). MQTT is informative: with the link down, messages are dropped and logged, not queued.
+- Serial 115200: `[wifi]`, `[mqtt]`, `[btn]`, `[alert]` events and a 1 Hz `[st]` line.
+
+## MQTT library
+
+**ESP-IDF `esp-mqtt` (`mqtt_client.h`), bundled with the Arduino core — no library to install.**
+Pinned by the core: **esp32 by Espressif Systems 3.3.8** (`esp32:esp32`). Why not PubSubClient:
+it cannot publish at QoS 1, which `alert` and `status` require. esp-mqtt gives QoS 1, retained LWT,
+user/password, and runs its own task, so `esp_mqtt_client_enqueue()` never blocks `loop()`.
+Reconnect: auto-reconnect is disabled and `net_loop()` retries with backoff 1 s → 30 s (doubling);
+keepalive 10 s (LWT after ~15 s is an ASSUMPTION from MQTT 3.1.1, to validate).
 
 ## Why a copied header
 
@@ -29,7 +71,7 @@ Arduino IDE only compiles files **inside the sketch folder** (including `src/`).
 ## Build
 
 1. Arduino IDE → Boards Manager → install **esp32 by Espressif Systems**.
-   Board: *ESP32 Dev Module* (`esp32:esp32:esp32`). Exact dev-kit model: TBD (`hardware/bom.md`).
+   Version 3.3.8. Board: *ESP32 Dev Module* (`esp32:esp32:esp32`). Exact dev-kit model: TBD (`hardware/bom.md`).
 2. From the repo root (PowerShell):
 
    ```powershell
@@ -37,10 +79,17 @@ Arduino IDE only compiles files **inside the sketch folder** (including `src/`).
    Copy-Item firmware/esp32-node/esp32-node/config.example.h firmware/esp32-node/esp32-node/config.h
    ```
 
-3. Edit `config.h`, open `esp32-node.ino`, Upload. Serial monitor at 115200.
+3. Edit `config.h` (Wi-Fi password, broker IP, MQTT user/password), open `esp32-node.ino`, Upload.
+   Serial monitor at 115200.
 
 With arduino-cli (same as CI):
 
 ```powershell
 arduino-cli compile --fqbn esp32:esp32:esp32 firmware/esp32-node/esp32-node
+```
+
+Observe (replace user/password and host):
+
+```powershell
+mosquitto_sub -h <broker> -u <user> -P <pass> -t "v2v/esp32-b/#" -v
 ```

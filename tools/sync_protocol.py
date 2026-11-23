@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Copy protocol headers from interfaces/c/ into the Arduino sketch folder.
+"""Copy shared C sources into the Arduino sketch folder.
 
 Arduino IDE only compiles files inside the sketch folder (including src/), so a
 relative include such as "../../interfaces/c/v2v_protocol.h" does not work.
-interfaces/c/ stays the single source of truth; the ESP32 gets a generated copy.
+interfaces/c/ and firmware/common/ stay the single source of truth; the ESP32 gets
+generated copies (with an AUTO-GENERATED banner) in the sketch's src/.
 
 Usage:
     python tools/sync_protocol.py          # write the copies
@@ -21,6 +22,11 @@ DEST_DIR = ROOT / "firmware" / "esp32-node" / "esp32-node" / "src"
 # Files to mirror, relative to the repo root.
 SOURCES = [
     Path("interfaces/c/v2v_protocol.h"),
+    # alert_pattern.h includes alert_logic.h, which includes v2v_protocol.h.
+    Path("firmware/common/include/alert_logic.h"),
+    Path("firmware/common/include/alert_pattern.h"),
+    Path("firmware/common/src/alert_logic.c"),
+    Path("firmware/common/src/alert_pattern.c"),
 ]
 
 HEADER = (
@@ -33,7 +39,7 @@ HEADER = (
 
 def render(src: Path) -> str:
     body = (ROOT / src).read_text(encoding="utf-8").replace("\r\n", "\n")
-    return HEADER.format(src=src.as_posix()) + body
+    return HEADER.format(src=src.as_posix(), origin=src.parent.as_posix()) + body
 
 
 def main() -> int:
