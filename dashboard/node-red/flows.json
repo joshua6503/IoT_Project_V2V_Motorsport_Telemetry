@@ -1,1 +1,907 @@
-[]
+[
+  {
+    "id": "v2v_tab",
+    "type": "tab",
+    "label": "V2V Telemetría",
+    "disabled": false,
+    "info": "Dashboard V2V (F1). Broker por V2V_BROKER_HOST/V2V_BROKER_PORT; usuario/contraseña en el almacén de credenciales de Node-RED."
+  },
+  {
+    "id": "v2v_broker",
+    "type": "mqtt-broker",
+    "name": "Broker V2V (Pi 5)",
+    "broker": "${V2V_BROKER_HOST}",
+    "port": "${V2V_BROKER_PORT}",
+    "clientid": "",
+    "autoConnect": true,
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "30",
+    "cleansession": true,
+    "autoUnsubscribe": true,
+    "birthTopic": "",
+    "birthQos": "0",
+    "birthRetain": "false",
+    "birthPayload": "",
+    "birthMsg": {},
+    "closeTopic": "",
+    "closeQos": "0",
+    "closeRetain": "false",
+    "closePayload": "",
+    "closeMsg": {},
+    "willTopic": "",
+    "willQos": "0",
+    "willRetain": "false",
+    "willPayload": "",
+    "willMsg": {},
+    "userProps": "",
+    "sessionExpiry": ""
+  },
+  {
+    "id": "v2v_ui",
+    "type": "ui-base",
+    "name": "V2V",
+    "path": "/dashboard",
+    "appIcon": "",
+    "includeClientData": true,
+    "acceptsClientConfig": [
+      "ui-notification",
+      "ui-control"
+    ],
+    "showPathInSidebar": false,
+    "headerContent": "page",
+    "navigationStyle": "none",
+    "titleBarStyle": "default",
+    "showReconnectNotification": true,
+    "notificationDisplayTime": 1,
+    "showDisconnectNotification": true,
+    "allowInstall": false
+  },
+  {
+    "id": "v2v_theme",
+    "type": "ui-theme",
+    "name": "V2V",
+    "colors": {
+      "surface": "#ffffff",
+      "primary": "#0b5cab",
+      "bgPage": "#eef1f5",
+      "groupBg": "#ffffff",
+      "groupOutline": "#d0d5dd"
+    },
+    "sizes": {
+      "pagePadding": "12px",
+      "groupGap": "12px",
+      "groupBorderRadius": "6px",
+      "widgetGap": "12px"
+    }
+  },
+  {
+    "id": "v2v_page",
+    "type": "ui-page",
+    "name": "V2V Telemetría",
+    "ui": "v2v_ui",
+    "path": "/",
+    "icon": "home",
+    "layout": "grid",
+    "theme": "v2v_theme",
+    "breakpoints": [
+      {
+        "name": "Default",
+        "px": "0",
+        "cols": "3"
+      },
+      {
+        "name": "Tablet",
+        "px": "576",
+        "cols": "6"
+      },
+      {
+        "name": "Small Desktop",
+        "px": "768",
+        "cols": "9"
+      },
+      {
+        "name": "Desktop",
+        "px": "1024",
+        "cols": "12"
+      }
+    ],
+    "order": 1,
+    "className": "",
+    "visible": "true",
+    "disabled": "false"
+  },
+  {
+    "id": "v2v_in_tlm",
+    "type": "mqtt in",
+    "z": "v2v_tab",
+    "name": "telemetría",
+    "topic": "v2v/+/telemetry",
+    "qos": "0",
+    "datatype": "utf8",
+    "broker": "v2v_broker",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 120,
+    "y": 80,
+    "wires": [
+      [
+        "v2v_validar"
+      ]
+    ]
+  },
+  {
+    "id": "v2v_in_alert",
+    "type": "mqtt in",
+    "z": "v2v_tab",
+    "name": "alertas",
+    "topic": "v2v/+/alert",
+    "qos": "1",
+    "datatype": "utf8",
+    "broker": "v2v_broker",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 110,
+    "y": 130,
+    "wires": [
+      [
+        "v2v_validar"
+      ]
+    ]
+  },
+  {
+    "id": "v2v_in_status",
+    "type": "mqtt in",
+    "z": "v2v_tab",
+    "name": "status (retenido)",
+    "topic": "v2v/+/status",
+    "qos": "1",
+    "datatype": "utf8",
+    "broker": "v2v_broker",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 140,
+    "y": 180,
+    "wires": [
+      [
+        "v2v_validar"
+      ]
+    ]
+  },
+  {
+    "id": "v2v_validar",
+    "type": "function",
+    "z": "v2v_tab",
+    "name": "Validar mensaje",
+    "func": "// Valida y descarta mensajes mal formados sin romper el flujo.\nconst NODOS = ['rw612-a', 'esp32-b'];\nconst ALERTAS = ['manual', 'hard_brake', 'obstacle', 'overtemp'];\nconst SEVERIDADES = ['info', 'warning', 'critical'];\nconst isUint = (v, max) => Number.isInteger(v) && v >= 0 && v <= max;\nconst isNumOrNull = (v) => v === null || (typeof v === 'number' && isFinite(v));\nconst isPct = (v) => typeof v === 'number' && isFinite(v) && v >= 0 && v <= 100;\n\nfunction descartar(motivo) {\n    const n = (context.get('ignorados') || 0) + 1;\n    context.set('ignorados', n);\n    node.status({ fill: 'yellow', shape: 'ring', text: 'ignorados: ' + n + ' (' + motivo + ')' });\n    const ahora = Date.now();\n    if (ahora - (context.get('ultimoAviso') || 0) > 10000) {\n        context.set('ultimoAviso', ahora);\n        node.warn('mensaje ignorado (' + motivo + ') en ' + msg.topic);\n    }\n    return null;\n}\n\ntry {\n    const partes = String(msg.topic).split('/');\n    if (partes.length !== 3 || partes[0] !== 'v2v') return descartar('tópico');\n    const nodo = partes[1], hoja = partes[2];\n    if (!NODOS.includes(nodo)) return null;           // otros nodos (p. ej. sim-01) no se muestran\n    let p;\n    try { p = JSON.parse(String(msg.payload)); } catch (e) { return descartar('JSON'); }\n    if (p === null || typeof p !== 'object' || Array.isArray(p)) return descartar('no es objeto');\n    if (p.node_id !== nodo) return descartar('node_id');\n\n    const ahora = Date.now();\n    const seen = flow.get('seen') || {};\n    const salida = { topic: nodo, node_id: nodo, t: ahora };\n\n    if (hoja === 'telemetry') {\n        if (!isUint(p.ts_ms, 4294967295) || !isUint(p.seq, 4294967295)) return descartar('ts_ms/seq');\n        if (p.brake_pct !== undefined && !isPct(p.brake_pct)) return descartar('brake_pct');\n        if (p.tps_pct !== undefined && !isPct(p.tps_pct)) return descartar('tps_pct');\n        if (p.temp_c !== undefined && !isNumOrNull(p.temp_c)) return descartar('temp_c');\n        if (p.distance_cm !== undefined && !isNumOrNull(p.distance_cm)) return descartar('distance_cm');\n        seen[nodo] = ahora;\n        flow.set('seen', seen);\n        salida.payload = p;\n        return [salida, null];\n    }\n    if (hoja === 'alert') {\n        if (!ALERTAS.includes(p.alert_type) || !SEVERIDADES.includes(p.severity)) return descartar('alerta');\n        if (!isUint(p.ts_ms, 4294967295) || !isUint(p.seq, 65535)) return descartar('ts_ms/seq');\n        seen[nodo] = ahora;\n        flow.set('seen', seen);\n        salida.payload = p;\n        return [null, salida];\n    }\n    if (hoja === 'status') {\n        if (p.state !== 'online' && p.state !== 'offline') return descartar('state');\n        const online = flow.get('online') || {};\n        online[nodo] = p.state;\n        flow.set('online', online);\n        return null;\n    }\n    return null;\n} catch (e) {\n    return descartar('error');\n}",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 350,
+    "y": 130,
+    "wires": [
+      [
+        "v2v_tlm"
+      ],
+      [
+        "v2v_alerta"
+      ]
+    ]
+  },
+  {
+    "id": "v2v_tlm",
+    "type": "function",
+    "z": "v2v_tab",
+    "name": "Telemetría → widgets",
+    "func": "// Salidas: 1-3 rw612-a (freno, temp, dist), 4-6 esp32-b (freno, temp, dist), 7-9 gráficas (freno, temp, dist)\nconst p = msg.payload, n = msg.node_id;\nconst base = (n === 'rw612-a') ? 0 : 3;\nconst out = [null, null, null, null, null, null, null, null, null];\nconst SEG_DIST = [{ from: 0, color: '#d32f2f' }, { from: 30, color: '#f9a825' }, { from: 100, color: '#2e7d32' }];\nconst SEG_NONE = [{ from: 0, color: '#9e9e9e' }];\nconst SEG_TEMP = [{ from: 0, color: '#2e7d32' }, { from: 70, color: '#f9a825' }, { from: 85, color: '#d32f2f' }];\n\nif (typeof p.brake_pct === 'number') {\n    out[base] = { payload: p.brake_pct };\n    out[6] = { topic: n, payload: p.brake_pct };\n}\nif (p.temp_c !== undefined) {\n    if (p.temp_c === null) {\n        out[base + 1] = { payload: 0, ui_update: { label: 'Temperatura · sin dato', segments: SEG_NONE } };\n    } else {\n        out[base + 1] = { payload: p.temp_c, ui_update: { label: 'Temperatura', segments: SEG_TEMP } };\n        out[7] = { topic: n, payload: p.temp_c };\n    }\n}\nif (p.distance_cm !== undefined) {\n    if (p.distance_cm === null) {\n        out[base + 2] = { payload: 0, ui_update: { label: 'Distancia · sin eco', segments: SEG_NONE } };\n    } else {\n        out[base + 2] = { payload: p.distance_cm, ui_update: { label: 'Distancia', segments: SEG_DIST } };\n        out[8] = { topic: n, payload: p.distance_cm };\n    }\n}\nreturn out;",
+    "outputs": 9,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 620,
+    "y": 100,
+    "wires": [
+      [
+        "g_rw_brake"
+      ],
+      [
+        "g_rw_temp"
+      ],
+      [
+        "g_rw_dist"
+      ],
+      [
+        "g_es_brake"
+      ],
+      [
+        "g_es_temp"
+      ],
+      [
+        "g_es_dist"
+      ],
+      [
+        "c_brake"
+      ],
+      [
+        "c_temp"
+      ],
+      [
+        "c_dist"
+      ]
+    ]
+  },
+  {
+    "id": "grp_rw",
+    "type": "ui-group",
+    "name": "rw612-a · FRDM-RW612",
+    "page": "v2v_page",
+    "width": "6",
+    "height": "1",
+    "order": 1,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "grp_es",
+    "type": "ui-group",
+    "name": "esp32-b · ESP32",
+    "page": "v2v_page",
+    "width": "6",
+    "height": "1",
+    "order": 2,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "grp_ch",
+    "type": "ui-group",
+    "name": "Últimos 5 minutos",
+    "page": "v2v_page",
+    "width": "12",
+    "height": "1",
+    "order": 3,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "grp_al",
+    "type": "ui-group",
+    "name": "Alertas",
+    "page": "v2v_page",
+    "width": "12",
+    "height": "1",
+    "order": 4,
+    "showTitle": true,
+    "className": "",
+    "visible": "true",
+    "disabled": "false",
+    "groupType": "default"
+  },
+  {
+    "id": "card_rw",
+    "type": "ui-template",
+    "z": "v2v_tab",
+    "group": "grp_rw",
+    "page": "",
+    "ui": "",
+    "name": "Estado rw612-a",
+    "order": 1,
+    "width": "6",
+    "height": "1",
+    "head": "",
+    "format": "<template>\n  <div class=\"v2v-card\" :class=\"msg && msg.payload ? msg.payload.clase : 'unk'\">\n    <span class=\"v2v-dot\"></span>\n    <strong>{{ msg && msg.payload ? msg.payload.estado : 'Esperando datos…' }}</strong>\n    <span class=\"v2v-ago\">{{ msg && msg.payload ? msg.payload.detalle : '' }}</span>\n  </div>\n</template>\n<style>\n.v2v-card { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:6px; font-size:16px; background:#eceff1; color:#37474f; }\n.v2v-card.on  { background:#e8f5e9; color:#1b5e20; }\n.v2v-card.off { background:#ffebee; color:#b71c1c; }\n.v2v-card.warn{ background:#fff8e1; color:#8d6e00; }\n.v2v-dot { width:12px; height:12px; border-radius:50%; background:currentColor; display:inline-block; }\n.v2v-ago { margin-left:auto; font-size:13px; opacity:.85; }\n</style>",
+    "storeOutMessages": true,
+    "passthru": false,
+    "resendOnRefresh": true,
+    "templateScope": "local",
+    "className": "",
+    "x": 1000,
+    "y": 60,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "g_rw_brake",
+    "type": "ui-gauge",
+    "z": "v2v_tab",
+    "name": "Freno rw612-a",
+    "group": "grp_rw",
+    "order": 2,
+    "width": "2",
+    "height": "3",
+    "gtype": "gauge-half",
+    "gstyle": "needle",
+    "title": "Freno",
+    "alwaysShowTitle": true,
+    "floatingTitlePosition": "top-left",
+    "units": "%",
+    "icon": "",
+    "prefix": "",
+    "suffix": "%",
+    "segments": [
+      {
+        "from": 0,
+        "color": "#2e7d32"
+      },
+      {
+        "from": 60,
+        "color": "#f9a825"
+      },
+      {
+        "from": 85,
+        "color": "#d32f2f"
+      }
+    ],
+    "min": 0,
+    "max": 100,
+    "sizeThickness": 16,
+    "sizeGap": 4,
+    "sizeKeyThickness": 8,
+    "styleRounded": true,
+    "styleGlow": false,
+    "className": "",
+    "value": "payload",
+    "valueType": "msg",
+    "x": 1000,
+    "y": 200,
+    "wires": []
+  },
+  {
+    "id": "g_rw_temp",
+    "type": "ui-gauge",
+    "z": "v2v_tab",
+    "name": "Temperatura rw612-a",
+    "group": "grp_rw",
+    "order": 3,
+    "width": "2",
+    "height": "3",
+    "gtype": "gauge-half",
+    "gstyle": "needle",
+    "title": "Temperatura",
+    "alwaysShowTitle": true,
+    "floatingTitlePosition": "top-left",
+    "units": "°C",
+    "icon": "",
+    "prefix": "",
+    "suffix": "°C",
+    "segments": [
+      {
+        "from": 0,
+        "color": "#2e7d32"
+      },
+      {
+        "from": 70,
+        "color": "#f9a825"
+      },
+      {
+        "from": 85,
+        "color": "#d32f2f"
+      }
+    ],
+    "min": 0,
+    "max": 120,
+    "sizeThickness": 16,
+    "sizeGap": 4,
+    "sizeKeyThickness": 8,
+    "styleRounded": true,
+    "styleGlow": false,
+    "className": "",
+    "value": "payload",
+    "valueType": "msg",
+    "x": 1000,
+    "y": 240,
+    "wires": []
+  },
+  {
+    "id": "g_rw_dist",
+    "type": "ui-gauge",
+    "z": "v2v_tab",
+    "name": "Distancia rw612-a",
+    "group": "grp_rw",
+    "order": 4,
+    "width": "2",
+    "height": "3",
+    "gtype": "gauge-half",
+    "gstyle": "needle",
+    "title": "Distancia",
+    "alwaysShowTitle": true,
+    "floatingTitlePosition": "top-left",
+    "units": "cm",
+    "icon": "",
+    "prefix": "",
+    "suffix": "cm",
+    "segments": [
+      {
+        "from": 0,
+        "color": "#d32f2f"
+      },
+      {
+        "from": 30,
+        "color": "#f9a825"
+      },
+      {
+        "from": 100,
+        "color": "#2e7d32"
+      }
+    ],
+    "min": 0,
+    "max": 400,
+    "sizeThickness": 16,
+    "sizeGap": 4,
+    "sizeKeyThickness": 8,
+    "styleRounded": true,
+    "styleGlow": false,
+    "className": "",
+    "value": "payload",
+    "valueType": "msg",
+    "x": 1000,
+    "y": 280,
+    "wires": []
+  },
+  {
+    "id": "card_es",
+    "type": "ui-template",
+    "z": "v2v_tab",
+    "group": "grp_es",
+    "page": "",
+    "ui": "",
+    "name": "Estado esp32-b",
+    "order": 1,
+    "width": "6",
+    "height": "1",
+    "head": "",
+    "format": "<template>\n  <div class=\"v2v-card\" :class=\"msg && msg.payload ? msg.payload.clase : 'unk'\">\n    <span class=\"v2v-dot\"></span>\n    <strong>{{ msg && msg.payload ? msg.payload.estado : 'Esperando datos…' }}</strong>\n    <span class=\"v2v-ago\">{{ msg && msg.payload ? msg.payload.detalle : '' }}</span>\n  </div>\n</template>\n<style>\n.v2v-card { display:flex; align-items:center; gap:8px; padding:8px 12px; border-radius:6px; font-size:16px; background:#eceff1; color:#37474f; }\n.v2v-card.on  { background:#e8f5e9; color:#1b5e20; }\n.v2v-card.off { background:#ffebee; color:#b71c1c; }\n.v2v-card.warn{ background:#fff8e1; color:#8d6e00; }\n.v2v-dot { width:12px; height:12px; border-radius:50%; background:currentColor; display:inline-block; }\n.v2v-ago { margin-left:auto; font-size:13px; opacity:.85; }\n</style>",
+    "storeOutMessages": true,
+    "passthru": false,
+    "resendOnRefresh": true,
+    "templateScope": "local",
+    "className": "",
+    "x": 1000,
+    "y": 110,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "g_es_brake",
+    "type": "ui-gauge",
+    "z": "v2v_tab",
+    "name": "Freno esp32-b",
+    "group": "grp_es",
+    "order": 2,
+    "width": "2",
+    "height": "3",
+    "gtype": "gauge-half",
+    "gstyle": "needle",
+    "title": "Freno",
+    "alwaysShowTitle": true,
+    "floatingTitlePosition": "top-left",
+    "units": "%",
+    "icon": "",
+    "prefix": "",
+    "suffix": "%",
+    "segments": [
+      {
+        "from": 0,
+        "color": "#2e7d32"
+      },
+      {
+        "from": 60,
+        "color": "#f9a825"
+      },
+      {
+        "from": 85,
+        "color": "#d32f2f"
+      }
+    ],
+    "min": 0,
+    "max": 100,
+    "sizeThickness": 16,
+    "sizeGap": 4,
+    "sizeKeyThickness": 8,
+    "styleRounded": true,
+    "styleGlow": false,
+    "className": "",
+    "value": "payload",
+    "valueType": "msg",
+    "x": 1000,
+    "y": 350,
+    "wires": []
+  },
+  {
+    "id": "g_es_temp",
+    "type": "ui-gauge",
+    "z": "v2v_tab",
+    "name": "Temperatura esp32-b",
+    "group": "grp_es",
+    "order": 3,
+    "width": "2",
+    "height": "3",
+    "gtype": "gauge-half",
+    "gstyle": "needle",
+    "title": "Temperatura",
+    "alwaysShowTitle": true,
+    "floatingTitlePosition": "top-left",
+    "units": "°C",
+    "icon": "",
+    "prefix": "",
+    "suffix": "°C",
+    "segments": [
+      {
+        "from": 0,
+        "color": "#2e7d32"
+      },
+      {
+        "from": 70,
+        "color": "#f9a825"
+      },
+      {
+        "from": 85,
+        "color": "#d32f2f"
+      }
+    ],
+    "min": 0,
+    "max": 120,
+    "sizeThickness": 16,
+    "sizeGap": 4,
+    "sizeKeyThickness": 8,
+    "styleRounded": true,
+    "styleGlow": false,
+    "className": "",
+    "value": "payload",
+    "valueType": "msg",
+    "x": 1000,
+    "y": 390,
+    "wires": []
+  },
+  {
+    "id": "g_es_dist",
+    "type": "ui-gauge",
+    "z": "v2v_tab",
+    "name": "Distancia esp32-b",
+    "group": "grp_es",
+    "order": 4,
+    "width": "2",
+    "height": "3",
+    "gtype": "gauge-half",
+    "gstyle": "needle",
+    "title": "Distancia",
+    "alwaysShowTitle": true,
+    "floatingTitlePosition": "top-left",
+    "units": "cm",
+    "icon": "",
+    "prefix": "",
+    "suffix": "cm",
+    "segments": [
+      {
+        "from": 0,
+        "color": "#d32f2f"
+      },
+      {
+        "from": 30,
+        "color": "#f9a825"
+      },
+      {
+        "from": 100,
+        "color": "#2e7d32"
+      }
+    ],
+    "min": 0,
+    "max": 400,
+    "sizeThickness": 16,
+    "sizeGap": 4,
+    "sizeKeyThickness": 8,
+    "styleRounded": true,
+    "styleGlow": false,
+    "className": "",
+    "value": "payload",
+    "valueType": "msg",
+    "x": 1000,
+    "y": 430,
+    "wires": []
+  },
+  {
+    "id": "c_brake",
+    "type": "ui-chart",
+    "z": "v2v_tab",
+    "group": "grp_ch",
+    "name": "Freno (%)",
+    "label": "Freno (%)",
+    "order": 1,
+    "chartType": "line",
+    "category": "topic",
+    "categoryType": "msg",
+    "xAxisLabel": "",
+    "xAxisProperty": "",
+    "xAxisPropertyType": "timestamp",
+    "xAxisType": "time",
+    "xAxisFormat": "",
+    "xAxisFormatType": "auto",
+    "yAxisLabel": "",
+    "yAxisProperty": "payload",
+    "yAxisPropertyType": "msg",
+    "ymin": "0",
+    "ymax": "100",
+    "action": "append",
+    "stackSeries": false,
+    "pointShape": "false",
+    "pointRadius": 1,
+    "showLegend": true,
+    "removeOlder": 5,
+    "removeOlderUnit": "60",
+    "removeOlderPoints": "",
+    "colors": [
+      "#0095FF",
+      "#FF7F0E",
+      "#2ca02c"
+    ],
+    "textColor": [
+      "#666666"
+    ],
+    "textColorDefault": true,
+    "gridColor": [
+      "#e5e5e5"
+    ],
+    "gridColorDefault": true,
+    "width": "4",
+    "height": "6",
+    "className": "",
+    "interpolation": "linear",
+    "x": 1000,
+    "y": 700,
+    "wires": []
+  },
+  {
+    "id": "c_temp",
+    "type": "ui-chart",
+    "z": "v2v_tab",
+    "group": "grp_ch",
+    "name": "Temperatura (°C)",
+    "label": "Temperatura (°C)",
+    "order": 2,
+    "chartType": "line",
+    "category": "topic",
+    "categoryType": "msg",
+    "xAxisLabel": "",
+    "xAxisProperty": "",
+    "xAxisPropertyType": "timestamp",
+    "xAxisType": "time",
+    "xAxisFormat": "",
+    "xAxisFormatType": "auto",
+    "yAxisLabel": "",
+    "yAxisProperty": "payload",
+    "yAxisPropertyType": "msg",
+    "ymin": "",
+    "ymax": "",
+    "action": "append",
+    "stackSeries": false,
+    "pointShape": "false",
+    "pointRadius": 1,
+    "showLegend": true,
+    "removeOlder": 5,
+    "removeOlderUnit": "60",
+    "removeOlderPoints": "",
+    "colors": [
+      "#0095FF",
+      "#FF7F0E",
+      "#2ca02c"
+    ],
+    "textColor": [
+      "#666666"
+    ],
+    "textColorDefault": true,
+    "gridColor": [
+      "#e5e5e5"
+    ],
+    "gridColorDefault": true,
+    "width": "4",
+    "height": "6",
+    "className": "",
+    "interpolation": "linear",
+    "x": 1000,
+    "y": 740,
+    "wires": []
+  },
+  {
+    "id": "c_dist",
+    "type": "ui-chart",
+    "z": "v2v_tab",
+    "group": "grp_ch",
+    "name": "Distancia (cm)",
+    "label": "Distancia (cm)",
+    "order": 3,
+    "chartType": "line",
+    "category": "topic",
+    "categoryType": "msg",
+    "xAxisLabel": "",
+    "xAxisProperty": "",
+    "xAxisPropertyType": "timestamp",
+    "xAxisType": "time",
+    "xAxisFormat": "",
+    "xAxisFormatType": "auto",
+    "yAxisLabel": "",
+    "yAxisProperty": "payload",
+    "yAxisPropertyType": "msg",
+    "ymin": "0",
+    "ymax": "400",
+    "action": "append",
+    "stackSeries": false,
+    "pointShape": "false",
+    "pointRadius": 1,
+    "showLegend": true,
+    "removeOlder": 5,
+    "removeOlderUnit": "60",
+    "removeOlderPoints": "",
+    "colors": [
+      "#0095FF",
+      "#FF7F0E",
+      "#2ca02c"
+    ],
+    "textColor": [
+      "#666666"
+    ],
+    "textColorDefault": true,
+    "gridColor": [
+      "#e5e5e5"
+    ],
+    "gridColorDefault": true,
+    "width": "4",
+    "height": "6",
+    "className": "",
+    "interpolation": "linear",
+    "x": 1000,
+    "y": 780,
+    "wires": []
+  },
+  {
+    "id": "v2v_alerta",
+    "type": "function",
+    "z": "v2v_tab",
+    "name": "Registro de alertas",
+    "func": "// Registro de alertas (últimas 50, sin duplicados por node_id+seq) y estado del banner rojo.\nconst BANNER_SEG = 10;   // el banner rojo dura 10 s desde la última alerta crítica\nconst TIPOS = { manual: 'Manual', hard_brake: 'Frenado fuerte', obstacle: 'Obstáculo', overtemp: 'Sobretemperatura' };\nconst SEV = { info: 'Info', warning: 'Advertencia', critical: 'Crítica' };\nconst p = msg.payload;\nconst clave = p.node_id + ':' + p.seq + ':' + p.alert_type;\nlet vistos = flow.get('alertKeys') || [];\nif (vistos.includes(clave)) return null;          // reentrega QoS 1\nvistos.push(clave); if (vistos.length > 200) vistos.shift();\nflow.set('alertKeys', vistos);\n\nconst lista = flow.get('alertas') || [];\nconst hora = new Date(msg.t).toLocaleTimeString('es-MX', { hour12: false });\nlista.unshift({ 'Hora': hora, 'Nodo': p.node_id, 'Tipo': TIPOS[p.alert_type], 'Severidad': SEV[p.severity] });\nif (lista.length > 50) lista.length = 50;\nflow.set('alertas', lista);\nif (p.severity === 'critical') {\n    flow.set('critica', { hasta: msg.t + BANNER_SEG * 1000, texto: (TIPOS[p.alert_type]) + ' en ' + p.node_id });\n}\nreturn { payload: lista };",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 620,
+    "y": 240,
+    "wires": [
+      [
+        "tbl_alertas"
+      ]
+    ]
+  },
+  {
+    "id": "tbl_alertas",
+    "type": "ui-table",
+    "z": "v2v_tab",
+    "group": "grp_al",
+    "name": "Registro de alertas",
+    "label": "Registro de alertas (últimas 50)",
+    "order": 2,
+    "width": "12",
+    "height": "6",
+    "maxrows": "8",
+    "passthru": false,
+    "autocols": true,
+    "showSearch": false,
+    "deselect": true,
+    "selectionType": "none",
+    "columns": [],
+    "mobileBreakpoint": "sm",
+    "mobileBreakpointType": "defaults",
+    "action": "replace",
+    "className": "",
+    "x": 1000,
+    "y": 300,
+    "wires": []
+  },
+  {
+    "id": "banner",
+    "type": "ui-template",
+    "z": "v2v_tab",
+    "group": "grp_al",
+    "page": "",
+    "ui": "",
+    "name": "Banner crítico",
+    "order": 1,
+    "width": "12",
+    "height": "1",
+    "head": "",
+    "format": "<template>\n  <div v-if=\"msg && msg.payload && msg.payload.activa\" class=\"v2v-banner\">\n    ⚠ ALERTA CRÍTICA — {{ msg.payload.texto }}\n  </div>\n  <div v-else class=\"v2v-ok\">Sin alertas críticas activas</div>\n</template>\n<style>\n.v2v-banner { background:#c62828; color:#fff; font-weight:700; font-size:20px; padding:14px 16px; border-radius:6px; text-align:center; animation: v2vblink 1s infinite; }\n.v2v-ok { background:#e8f5e9; color:#1b5e20; padding:8px 12px; border-radius:6px; text-align:center; }\n@keyframes v2vblink { 50% { background:#e53935; } }\n</style>",
+    "storeOutMessages": true,
+    "passthru": false,
+    "resendOnRefresh": true,
+    "templateScope": "local",
+    "className": "",
+    "x": 1000,
+    "y": 340,
+    "wires": [
+      []
+    ]
+  },
+  {
+    "id": "v2v_tick",
+    "type": "inject",
+    "z": "v2v_tab",
+    "name": "cada 1 s",
+    "props": [
+      {
+        "p": "payload"
+      }
+    ],
+    "repeat": "1",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "1",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 110,
+    "y": 320,
+    "wires": [
+      [
+        "v2v_estado"
+      ]
+    ]
+  },
+  {
+    "id": "v2v_estado",
+    "type": "function",
+    "z": "v2v_tab",
+    "name": "Estado de nodos y banner",
+    "func": "// Cada segundo: estado de cada nodo (retenido) + tiempo desde el último mensaje, y banner crítico.\nconst seen = flow.get('seen') || {};\nconst online = flow.get('online') || {};\nconst ahora = Date.now();\nfunction tarjeta(n) {\n    const t = seen[n], st = online[n];\n    const hace = t ? Math.max(0, Math.round((ahora - t) / 1000)) : null;\n    const detalle = hace === null ? 'sin mensajes todavía' : 'último mensaje hace ' + hace + ' s';\n    if (st === 'offline') return { estado: 'Fuera de línea', clase: 'off', detalle };\n    if (st === 'online') return hace !== null && hace > 5 ? { estado: 'En línea · sin datos recientes', clase: 'warn', detalle }\n                                                         : { estado: 'En línea', clase: 'on', detalle };\n    return { estado: hace !== null && hace <= 5 ? 'En línea (sin status)' : 'Desconocido', clase: hace !== null && hace <= 5 ? 'warn' : 'unk', detalle };\n}\nconst c = flow.get('critica');\nconst activa = !!c && c.hasta > ahora;\nreturn [{ payload: tarjeta('rw612-a') }, { payload: tarjeta('esp32-b') }, { payload: { activa, texto: activa ? c.texto : '' } }];",
+    "outputs": 3,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 380,
+    "y": 320,
+    "wires": [
+      [
+        "card_rw"
+      ],
+      [
+        "card_es"
+      ],
+      [
+        "banner"
+      ]
+    ]
+  },
+  {
+    "id": "v2v_note",
+    "type": "comment",
+    "z": "v2v_tab",
+    "name": "Broker: V2V_BROKER_HOST / V2V_BROKER_PORT (start-dashboard.ps1). Usuario y contraseña: almacén de credenciales.",
+    "info": "",
+    "x": 380,
+    "y": 30,
+    "wires": []
+  }
+]
