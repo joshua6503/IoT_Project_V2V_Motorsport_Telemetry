@@ -25,6 +25,11 @@ float io_brake_pct_from_mv(uint32_t mv);
 /** true once per debounced BOOT press (falling edge). */
 bool io_button_pressed(uint32_t now_ms);
 
+#if defined(BUZZER_SELFTEST) && BUZZER_SELFTEST
+/** TEMPORARY: sweep the buzzer 1-5 kHz at boot (blocking), see config.h BUZZER_SELFTEST. */
+void io_buzzer_selftest(void);
+#endif
+
 /** Start the node-local confirmation of a manual alert (yellow blink + beep). */
 void io_manual_feedback(uint32_t now_ms);
 

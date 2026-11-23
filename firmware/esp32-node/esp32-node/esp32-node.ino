@@ -8,6 +8,9 @@
  *  - telemetry 5 Hz, alerts QoS 1, status retained + LWT (node_net.cpp)
  * The main loop never blocks: no delay(), everything is scheduled with millis().
  */
+#include <Preferences.h>
+#include <esp_system.h>
+
 #include "config.h"
 #include "node_io.h"
 #include "node_net.h"
@@ -25,6 +28,28 @@ static uint32_t s_tlm_seq    = 0;
 static uint16_t s_alert_seq  = 0;
 static uint32_t s_tlm_sent   = 0;
 static uint32_t s_tlm_drop   = 0;
+
+/* Boot diagnostics: reboot counter and reset reason, persisted in NVS, serial only. */
+static uint32_t    s_boot_count   = 0;
+static const char *s_reset_reason = "?";
+
+static const char *reset_reason_str(esp_reset_reason_t r)
+{
+    switch (r)
+    {
+    case ESP_RST_POWERON:   return "POWERON";
+    case ESP_RST_EXT:       return "EXT";
+    case ESP_RST_SW:        return "SW";
+    case ESP_RST_PANIC:     return "PANIC";
+    case ESP_RST_INT_WDT:   return "INT_WDT";
+    case ESP_RST_TASK_WDT:  return "TASK_WDT";
+    case ESP_RST_WDT:       return "WDT";
+    case ESP_RST_DEEPSLEEP: return "DEEPSLEEP";
+    case ESP_RST_BROWNOUT:  return "BROWNOUT";
+    case ESP_RST_SDIO:      return "SDIO";
+    default:                return "UNKNOWN";
+    }
+}
 
 static uint32_t s_next_brake_ms  = 0;
 static uint32_t s_next_tlm_ms    = 0;
@@ -129,7 +154,20 @@ void setup()
     Serial.printf("\n[%s] v2v protocol v%u.%u, F2 wifi+mqtt\n", NODE_ID_STR,
                   (unsigned)V2V_PROTOCOL_VERSION_MAJOR, (unsigned)V2V_PROTOCOL_VERSION_MINOR);
 
+    /* Boot diagnostics, serial only (the MQTT payload contract is frozen). */
+    Preferences prefs;
+    prefs.begin("v2v", false);
+    s_boot_count = prefs.getUInt("boots", 0) + 1;
+    prefs.putUInt("boots", s_boot_count);
+    s_reset_reason = reset_reason_str(esp_reset_reason());
+    prefs.putString("rst", s_reset_reason);
+    prefs.end();
+    Serial.printf("[boot] count=%lu reset_reason=%s\n", (unsigned long)s_boot_count, s_reset_reason);
+
     io_init();
+#if defined(BUZZER_SELFTEST) && BUZZER_SELFTEST
+    io_buzzer_selftest();
+#endif
     alert_init(&s_alert_ctx, NULL); /* bench defaults from firmware/common (ASSUMPTION, OPEN-005) */
     net_init();
 
@@ -167,9 +205,10 @@ void loop()
 
     if (due(now, &s_next_status_ms, STATUS_LOG_MS))
     {
-        Serial.printf("[st] wifi=%d mqtt=%d brake=%.1f%% (%lu mV) sensor_ok=%u alert=%s tlm sent=%lu drop=%lu\n",
+        Serial.printf("[st] wifi=%d mqtt=%d brake=%.1f%% (%lu mV) sensor_ok=%u alert=%s tlm sent=%lu drop=%lu boots=%lu rst=%s\n",
                       (int)net_wifi_connected(), (int)net_mqtt_connected(), (double)s_brake_pct,
                       (unsigned long)s_brake_mv, (unsigned)s_sensor_ok, alert_type_str(s_alert.type),
-                      (unsigned long)s_tlm_sent, (unsigned long)s_tlm_drop);
+                      (unsigned long)s_tlm_sent, (unsigned long)s_tlm_drop, (unsigned long)s_boot_count,
+                      s_reset_reason);
     }
 }

@@ -27,12 +27,29 @@ esp32-node/
 |---|---|
 | Brake pot wiper (ADC1_CH4) | 32 |
 | LED green / yellow / red | 25 / 26 / 27 (220 Ω each to GND) |
-| Buzzer (active) through NPN | 23 → 1 kΩ → base; buzzer VIN→collector; emitter GND |
+| Buzzer (**passive**) through NPN 2N2222A | 33 → 1 kΩ → base; buzzer VIN→collector; emitter GND; flyback diode across the buzzer, cathode to +5 V |
 | Manual alert | 0 (on-board BOOT button) |
 
 Brake pot: 3.3 V → 5.6 kΩ → 50 kΩ pot → 2.7 kΩ → GND, wiper to GPIO32, no capacitor (100 nF
-wiper→GND optional, not fitted); calculated wiper range 0.15–2.98 V, not measured. The series resistors make a shorted/open wiper detectable.
+wiper→GND optional, not fitted); calculated wiper range 0.15–2.98 V, measured 169–3019 mV on the bench (2026-11-23). The series resistors make a shorted/open wiper detectable.
 Do not hold BOOT while pressing EN/reset (it enters download mode).
+
+Buzzer: the node B buzzer is **passive** (it only clicks with DC), so GPIO33 (DevKitC J2 pin 8, next to GPIO32 = pot wiper, keep their wires apart) is driven with LEDC PWM at
+`BUZZER_TONE_HZ` (2500 Hz, 50 % duty), on only while the alert pattern or the BOOT confirmation says
+"buzzer on". This resolves OPEN-013 for node B. `BUZZER_PASSIVE 0` in `config.h` switches back to plain
+on/off for an active buzzer (e.g. TMB12A05).
+
+Bench finding (2026-11-23): GPIO23 stayed silent, GPIO33 works with the same firmware, so the GPIO23
+problem was the breadboard wiring/pin location, not the code. Measured on the bench: the digital
+HIGH/LOW test clicks and the 2.5 kHz tone is loud on GPIO33. The buzzer stays on GPIO33.
+
+Buzzer self-test (temporary bench aid, **off by default**): set `BUZZER_SELFTEST` in `config.h`
+to run it at boot, blocking on purpose: `1` sweep 1–5 kHz in 500 Hz steps then 3 s at 2.5 kHz,
+`2` continuous tone until reset (for a scope), `3` digital HIGH 2 s / LOW 2 s until reset
+(LEDC detached). Modes 2 and 3 never return; reset or reflash to leave them. Keep it at `0` otherwise.
+
+Brake calibration (`BRAKE_MV_MIN/MAX` = 170 / 3010 mV, fault window 80–3090 mV) was measured on the
+bench on 2026-11-23 and is no longer an ASSUMPTION.
 
 ## Behaviour
 
@@ -55,6 +72,23 @@ it cannot publish at QoS 1, which `alert` and `status` require. esp-mqtt gives Q
 user/password, and runs its own task, so `esp_mqtt_client_enqueue()` never blocks `loop()`.
 Reconnect: auto-reconnect is disabled and `net_loop()` retries with backoff 1 s → 30 s (doubling);
 keepalive 10 s (LWT after ~15 s is an ASSUMPTION from MQTT 3.1.1, to validate).
+Measured on the bench (2026-11-23, Pi on the home router): LWT `offline` arrives 16.0 s after the
+last telemetry when the USB is unplugged; after `systemctl restart mosquitto` the node reconnects
+about 1 s after it notices the drop (twice in a row, telemetry back at 5 Hz with no `seq` gaps).
+Design notes: telemetry (QoS 0) is sent by a small task with `esp_mqtt_client_publish()`;
+`esp_mqtt_client_enqueue()` for QoS 0 only delivered ~1 msg/s and was dropped. `network.timeout_ms` is
+left at the default (a 3 s timeout made the node flap: an MQTT connect takes ~3 s here), Wi-Fi modem
+sleep is off, and if the telemetry task makes no progress for 20 s the node restarts itself (logged).
+Known open point (2026-11-23, 10 min clean test, serial closed): the node is NOT stable against the Pi
+over the home router. The broker saw ~20 `offline` events and only ~1000 of ~2950 expected telemetry
+messages. The board's own log shows `mqtt_client: Writing didn't complete in specified timeout:
+errno=119` / `Error sending ping` while Wi-Fi still reports connected, and the telemetry task blocks
+inside `esp_mqtt_client_publish()` (`sent` frozen, `drop` rising) for minutes; the stuck-task restart
+only fires while MQTT is up, so it can stay muted. Boot counter and reset reason (`boots=`, `rst=` in
+the serial `[st]` line, NVS) show the reboots were the node's own watchdog (`rst=SW`), not power or
+panics. Suspect: Wi-Fi power save on the Pi (`802-11-wireless.powersave` is `default` on `home-wifi`);
+not yet tested. Fix to validate: disable it on the Pi and make the stuck-task restart independent of
+the MQTT state.
 
 ## Why a copied header
 

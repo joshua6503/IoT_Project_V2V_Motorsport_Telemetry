@@ -34,7 +34,16 @@
 #define PIN_LED_GREEN   25 /* active high, 220 ohm to GND                      */
 #define PIN_LED_YELLOW  26 /* active high, 220 ohm to GND                      */
 #define PIN_LED_RED     27 /* active high, 220 ohm to GND                      */
-#define PIN_BUZZER      23 /* NPN base through 1 kohm, active high             */
+#define PIN_BUZZER      33 /* NPN base through 1 kohm (LEDC PWM when passive); */
+                           /* GPIO23 had a breadboard wiring/pin-location      */
+                           /* problem (2026-11-23), GPIO33 works and stays.    */
+                           /* GPIO33 is next to GPIO32 (pot wiper): keep wires apart */
+                           /* Buzzer type. Node B buzzer is PASSIVE (clicks with DC, needs a tone).      */
+/* Set BUZZER_PASSIVE 0 for an active buzzer such as the TMB12A05.            */
+#define BUZZER_PASSIVE      1
+#define BUZZER_SELFTEST     0 /* bench aid at boot: 1 sweep 1-5 kHz, 2 tone 60 s (scope), 3 digital HIGH/LOW */
+#define BUZZER_TONE_HZ   2500 /* passive tone, 50 % duty (resonance varies;   */
+                              /* tune by ear on the bench)                    */
 #define PIN_BUTTON       0 /* on-board BOOT button, active low (strapping pin: */
                            /* do not hold it while resetting or it enters      */
                            /* download mode)                                   */
@@ -56,11 +65,12 @@
 /* ------------------------------------------------------------------------- */
 /* Brake pot: 3.3 V -> 5.6 kohm -> 50 kohm pot -> 2.7 kohm -> GND, wiper to   */
 /* PIN_BRAKE_POT, no capacitor (100 nF to GND optional, not fitted).          */
-/* Calculated wiper range 0.15-2.98 V (not measured).                         */
-#define BRAKE_MV_MIN        155  /* ASSUMPTION: wiper mV at 0 % (calibrate)    */
-#define BRAKE_MV_MAX       2980  /* ASSUMPTION: wiper mV at 100 % (calibrate)  */
-#define BRAKE_MV_FAULT_LO   80   /* ASSUMPTION: below -> wiper shorted/open    */
-#define BRAKE_MV_FAULT_HI 3050   /* ASSUMPTION: above -> wiper open to 3V3     */
+/* Calculated wiper range 0.15-2.98 V; measured on the bench 2026-11-23:      */
+/* 169-3019 mV. The four BRAKE_MV_* values below come from that sweep.        */
+#define BRAKE_MV_MIN        170  /* measured 2026-11-23: wiper mV at 0 %       */
+#define BRAKE_MV_MAX       3010  /* measured 2026-11-23: wiper mV at 100 %     */
+#define BRAKE_MV_FAULT_LO   80   /* below -> wiper shorted/open (bench-checked)*/
+#define BRAKE_MV_FAULT_HI 3090   /* above -> wiper open; floating pin read 3139*/
 #define BRAKE_AVG_SAMPLES    8   /* ADC reads averaged per brake sample        */
 
 #define BUTTON_DEBOUNCE_MS  30u  /* ASSUMPTION */
