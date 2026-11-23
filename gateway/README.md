@@ -1,5 +1,8 @@
 # gateway — Mosquitto + Node-RED (Docker)
 
+> **The real gateway is the Raspberry Pi 5: see [`pi/README.md`](pi/README.md)** (Mosquitto with
+> user/password, home/pit modes). This Docker setup is kept only for local development on a laptop.
+
 See [ADR-0003](../docs/adr/0003-mqtt-with-local-mosquitto.md).
 
 | Service | Image | Port | Data |
