@@ -54,8 +54,9 @@ flowchart LR
     WIFI --> MQ --> NR
 ```
 
-More diagrams (4-layer view, alert sequence, firmware layers) in
-[`docs/02-architecture/architecture.md`](docs/02-architecture/architecture.md).
+Project state, phases and current decisions: [`docs/ARQUITECTURA.md`](docs/ARQUITECTURA.md) (Spanish).
+More diagrams (4-layer view, alert sequence, firmware layers) in the archived
+[`docs/archive/layers/02-architecture/architecture.md`](docs/archive/layers/02-architecture/architecture.md).
 
 ## Hardware
 

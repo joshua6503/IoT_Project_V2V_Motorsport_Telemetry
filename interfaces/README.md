@@ -45,7 +45,7 @@ The mapping is static configuration:
 
 ## Open points
 
-Tracked in [`../docs/STATUS.md`](../docs/STATUS.md):
+Tracked in [`../docs/archive/layers/STATUS.md`](../docs/archive/layers/STATUS.md):
 
 - Time base of `ts_ms` / `timestamp_ms` → OPEN-007
 - `cmd` payloads → OPEN-010

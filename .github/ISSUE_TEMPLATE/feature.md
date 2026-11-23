@@ -13,7 +13,7 @@ labels: enhancement
 
 ## Requirements covered
 
-<!-- REQ-F-xxx / REQ-NF-xxx from docs/01-requirements/requirements.md -->
+<!-- REQ-F-xxx / REQ-NF-xxx from docs/archive/layers/01-requirements/requirements.md -->
 
 ## Acceptance criteria
 

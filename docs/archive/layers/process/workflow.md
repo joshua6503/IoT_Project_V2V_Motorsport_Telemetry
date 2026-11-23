@@ -44,12 +44,12 @@ needs are `DECIDED`.
 |---|---|---|
 | L0 Vision & scope | problem, users, in/out of scope | [`docs/00-vision/`](../00-vision/) |
 | L1 Requirements | REQ-F / REQ-NF | [`docs/01-requirements/`](../01-requirements/) |
-| L2 Architecture | system planes, 4-layer view, firmware layers, ADRs | [`docs/02-architecture/`](../02-architecture/), [`docs/adr/`](../adr/) |
-| L3 Contracts | MQTT, JSON Schema, BLE GATT, C header | [`interfaces/`](../../interfaces/) |
-| L4 Hardware | BOM, pinout (cited sources) | [`hardware/`](../../hardware/) |
-| L5 Implementation | firmware, gateway, dashboard, tools — per milestone | [`firmware/`](../../firmware/), [`gateway/`](../../gateway/), [`dashboard/`](../../dashboard/), [`tools/`](../../tools/) |
-| L6 Verification | unit, integration, HIL, evidence | [`tests/`](../../tests/), [`docs/04-testing/`](../04-testing/) |
-| L7 Deliverables | school documents (Spanish) | [`docs/deliverables/`](../deliverables/) |
+| L2 Architecture | system planes, 4-layer view, firmware layers, ADRs | [`docs/02-architecture/`](../02-architecture/), [`docs/adr/`](../../../adr/) |
+| L3 Contracts | MQTT, JSON Schema, BLE GATT, C header | [`interfaces/`](../../../../interfaces/) |
+| L4 Hardware | BOM, pinout (cited sources) | [`hardware/`](../../../../hardware/) |
+| L5 Implementation | firmware, gateway, dashboard, tools — per milestone | [`firmware/`](../../../../firmware/), [`gateway/`](../../../../gateway/), [`dashboard/`](../../../../dashboard/), [`tools/`](../../../../tools/) |
+| L6 Verification | unit, integration, HIL, evidence | [`tests/`](../../../../tests/), [`docs/04-testing/`](../../../04-testing/) |
+| L7 Deliverables | school documents (Spanish) | [`docs/deliverables/`](../../../deliverables/) |
 
 ## ADR policy
 
@@ -57,7 +57,7 @@ An ADR is only for consequential decisions: radio or transport, wire protocol,
 BLE roles, toolchain, firmware architecture, data ownership.
 
 Minor decisions become a `DEC-###` entry in STATUS plus a dated line in
-[`docs/project-notes.md`](../project-notes.md).
+[`docs/project-notes.md`](../../../project-notes.md).
 
 ## Handoff format
 

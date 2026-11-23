@@ -1,6 +1,6 @@
 # ADR-0002: ESP32 classic with Arduino as the secondary node
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-11, already implemented and in use)
 - **Date:** 2026-09-30
 - **Deciders:** J. A. Chávez Montero, M. A. Mireles González, K. Rincones Partida, J. Santana Renteria
 

@@ -2,6 +2,24 @@
 
 Short, dated entries. Anything that becomes a lasting decision gets an ADR.
 
+## 2026-11-11
+
+- F0: switched to phase-based workflow. `docs/ARQUITECTURA.md` (Spanish) is now the single
+  source of truth (objective, components, decisions, phase table F0–F5). Vision,
+  requirements, architecture, `STATUS.md` and `process/workflow.md` archived with `git mv`
+  under `docs/archive/layers/` (frozen; REQ/DEC/OPEN/CONFLICT/HIL IDs still valid).
+  `CLAUDE.md` updated to the phase workflow.
+- ADR-0002, ADR-0004 and ADR-0005 moved to Accepted (already implemented and in use).
+  ADR-0003 stays Proposed; it is rewritten in F1 (gateway moves to the Raspberry Pi 5).
+- F0 verification: unit tests 47/47 pass (MCUXpresso `make.exe` + `python-zig cc`, see
+  `tests/README.md`); integration 6/6 pass including the broker round trip; ESP32 sketch
+  compiles (local core 3.3.8); RW612 not built headless (IDE only); CI runs not checked.
+- Risks for later phases (no action now):
+  - The MCUXpresso project for the RW612 (`firmware/rw612-node/V2V_IOT/`) is git-ignored
+    and exists only on Joshua's laptop; how to version it without SDK files is decided in F3.
+  - The native Mosquitto on the laptop uses port 1883 (conflicts with
+    `gateway/docker-compose.yml`); irrelevant once the Pi is the gateway.
+
 ## 2026-11-10
 
 - HANDOFF-006: bench capture `capture3` (FW `ec329fe`, FIR on, CSV on) stored as evidence in
@@ -86,7 +104,7 @@ Short, dated entries. Anything that becomes a lasting decision gets an ADR.
 - Locally installed MCUXpresso SDK for FRDM-RW612 reports version 26.06.00 in its
   manifest; team-wide SDK version → OPEN-001.
 - To validate: BLE/802.15.4 simultaneity on the RW612 → OPEN-011 (ASSUMPTION).
-- Pending, tracked in [`STATUS.md`](STATUS.md): pin assignment → OPEN-003;
+- Pending, tracked in [`STATUS.md`](archive/layers/STATUS.md): pin assignment → OPEN-003;
   sensor/actuator and ESP32 dev-kit models → OPEN-004; alert thresholds → OPEN-005;
   time base → OPEN-007.
 - Workflow adopted: chat = architect, Claude Code = implementer, rw612-tutor = technical

@@ -62,7 +62,7 @@ sequenceDiagram
 
 ## RW612 firmware layers
 
-See [ADR-0005](../adr/0005-layered-firmware-architecture.md).
+See [ADR-0005](../../../adr/0005-layered-firmware-architecture.md).
 
 ```mermaid
 flowchart TB

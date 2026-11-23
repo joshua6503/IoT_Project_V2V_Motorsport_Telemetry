@@ -15,9 +15,9 @@ entregan al profesor.
 
 ## Fuentes para redactar
 
-- Visión y problema: [`../00-vision/vision.md`](../00-vision/vision.md)
-- Requisitos: [`../01-requirements/requirements.md`](../01-requirements/requirements.md)
-- Arquitectura y diagramas (4 capas): [`../02-architecture/architecture.md`](../02-architecture/architecture.md)
+- Visión y problema: [`../archive/layers/00-vision/vision.md`](../archive/layers/00-vision/vision.md)
+- Requisitos: [`../archive/layers/01-requirements/requirements.md`](../archive/layers/01-requirements/requirements.md)
+- Arquitectura y diagramas (4 capas): [`../archive/layers/02-architecture/architecture.md`](../archive/layers/02-architecture/architecture.md)
 - Decisiones justificadas: [`../adr/`](../adr/)
 - Plan de pruebas: [`../04-testing/test-plan.md`](../04-testing/test-plan.md)
 

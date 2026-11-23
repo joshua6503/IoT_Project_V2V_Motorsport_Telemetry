@@ -12,7 +12,7 @@ Main argument — the hardware we have cannot form a mesh:
 - A Thread mesh needs **at least 3 802.15.4 nodes plus a border router** to reach IP networks.
 - The secondary node is an ESP32 classic, which has BLE but **no 802.15.4 radio**.
 
-Secondary factor — shared radio (*to validate*, OPEN-011 in [`../STATUS.md`](../STATUS.md)):
+Secondary factor — shared radio (*to validate*, OPEN-011 in [`../archive/layers/STATUS.md`](../archive/layers/STATUS.md)):
 
 - The FRDM-RW612 offers Wi-Fi 6 plus "Bluetooth LE 5.4 / 802.15.4 radios"
   (NXP UG10160, §2, p.3). Its block diagram includes a *multi-radio coexistence*
