@@ -25,30 +25,31 @@ al gateway en la Raspberry Pi, con dashboard en vivo.
 
 ## 3. Componentes
 
-| Componente | Corre en | Estado (11-nov) |
+| Componente | Corre en | Estado (23-nov) |
 |---|---|---|
-| Nodo A — `firmware/rw612-node` | FRDM-RW612, MCUXpresso, superloop bare-metal | MP1 + filtro FIR funcionando en banco; **sin red** |
-| Nodo B — `firmware/esp32-node` | ESP32 clásico, Arduino IDE | Esqueleto (solo imprime versión) |
-| Gateway — Mosquitto + Node-RED | **Raspberry Pi 5** con Raspberry Pi OS (antes laptop con Docker) | `docker-compose.yml` existe para laptop; en la laptop de Joshua corre un Mosquitto nativo de Windows (puerto 1883), no Docker; Pi sin configurar |
-| Dashboard — `dashboard/node-red/flows.json` | Node-RED en la Pi | Vacío |
-| Simulador — `tools/node-simulator` | Cualquier PC | Listo (publica telemetría válida) |
-| Contratos — `interfaces/` | — | v0.1 (MQTT, JSON Schema, GATT, `v2v_protocol.h`) |
+| Nodo A — `firmware/rw612-node` | FRDM-RW612, MCUXpresso, **FreeRTOS + lwIP** (DEC-012), base `wifi_examples/wifi_mqtt` | `rw612-a` publica directo a la Pi por Wi-Fi/MQTT. **Estable en Wi-Fi de casa Familia_CM** (3082/3082 msgs en 10 min, 0 pérdidas); **inestable en el hotspot del iPhone** |
+| Nodo B — `firmware/esp32-node` | ESP32 clásico, Arduino IDE | `esp32-b` publica a la Pi, pero **pierde mensajes en el Wi-Fi de casa** (prueba limpia de 10 min: ~34 % de la telemetría, envíos TCP detenidos con errno 119, 20 reconexiones). Buzzer pasivo en GPIO33; calibración de freno medida |
+| Gateway — Mosquitto | **Raspberry Pi 5**: hostname `RaspPi5`, Raspberry Pi OS (Debian 13 trixie, aarch64), usuario `joshua`, SSH con llave | Scripts listos en `gateway/pi/` (`setup_pi.sh`, `pi-mode.sh`, `verify_pi.sh`); **Pi 5 con Mosquitto con usuarios, hoy en Familia_CM, 192.168.0.239 (DHCP)**; modo pit V2V-PIT 10.42.0.1 preparado, **sin probar**. Dos modos porque su radio Wi-Fi no puede ser cliente y AP a la vez: **home** (cliente del Wi-Fi de casa, hotspot del iPhone de respaldo; mantenimiento) y **pit** (AP «V2V-PIT», 2.4 GHz, WPA2; trabajo con nodos y demo). Mosquitto con usuario/contraseña |
+| Dashboard — `dashboard/node-red/flows.json` | Node-RED en la **laptop** de Joshua (Windows) | Flows y `start-dashboard.ps1` (broker como parámetro); **funciona, probado con el simulador** (falta captura con nodos reales) |
+| Simulador — `tools/node-simulator` | Cualquier PC | Publica dos nodos (rw612-a, esp32-b) con status/LWT y alertas; broker y credenciales por argumentos o variables de entorno |
+| Contratos — `interfaces/` | — | v0.2 (telemetría: solo `node_id`, `ts_ms`, `seq` obligatorios; `brake_pct`, `tps_pct`, `sensor_ok` agregados) |
 | Pruebas — `tests/` | PC / CI | Unitarias pasan (`alert_logic`, `fir_filter`); integración pasa completa en local, incluida la prueba con broker (Mosquitto nativo de la laptop) |
 
 ## 4. Integraciones
 
 | Enlace | Contrato | Estado |
 |---|---|---|
-| Nodo → broker (telemetría, alerta espejo, status/LWT) | `interfaces/mqtt-topics.md`, `payload.schema.json` | Contrato listo; falta `brake_pct`/`tps_pct` en el schema |
+| Nodo → broker (telemetría, alerta espejo, status/LWT) | `interfaces/mqtt-topics.md`, `payload.schema.json` | Contrato v0.2 listo (F1). `rw612-a` (estable en casa) y `esp32-b` (con pérdidas) publican directo a la Pi por Wi-Fi |
 | Nodo ↔ nodo (V2V) | `interfaces/ble-gatt.md`, `v2v_protocol.h` | Contrato listo; nada implementado |
-| Broker → dashboard | Node-RED | Pendiente |
-| Red de la demo | La Pi 5 como access point de 2.4 GHz (SSID propio, IP fija del broker) | Recomendado, por confirmar; independiente de la red escolar y del celular |
+| Broker → dashboard | Node-RED en la laptop, usuario MQTT `dashboard` | Flows funcionando; probado con el simulador, pendiente con nodos reales |
+| Red de la demo | La Pi en modo **pit**: AP «V2V-PIT» (2.4 GHz, WPA2); broker en `10.42.0.1:1883` (dirección fija del AP); los nodos siempre apuntan a V2V-PIT. En modo **home** la Pi es cliente de la red de casa (nombre `RaspPi5.local`; esas IP cambian con la red) | Implementado en `gateway/pi/pi-mode.sh`; detalle en `gateway/pi/README.md` |
 
 ## 5. Seguridad y secretos
 
 - Credenciales Wi-Fi: ESP32 en `config.h` (ignorado por git, plantilla `config.example.h`);
   RW612 en un header local ignorado equivalente (se define en la fase del RW612).
-- Mosquitto en red local de demo; sin exponer nada a internet.
+- Mosquitto con usuario/contraseña (`rw612-a`, `esp32-b`, `dashboard`; `allow_anonymous false`), sin TLS, solo en la red local/AP de la demo; sin exponer nada a internet.
+- Las contraseñas (Wi-Fi de casa, V2V-PIT, MQTT) las escribe Joshua con entrada oculta; las credenciales MQTT de Node-RED quedan en su almacén de credenciales, no en `flows.json`.
 - Las contraseñas de la Pi las pone Joshua; nunca en el chat ni en el repo.
 
 ## 6. Decisiones vigentes
@@ -57,12 +58,17 @@ al gateway en la Raspberry Pi, con dashboard en vivo.
 |---|---|
 | ADR-0001 | V2V por BLE (Thread/802.15.4 queda como futuro) |
 | ADR-0002, 0004, 0005 | ESP32/Arduino como nodo B; monorepo con contratos primero; firmware en capas app/services/drivers/board (Accepted 2026-11-11) |
-| ADR-0003 | Mosquitto local (**Proposed**; se reescribe en F1 al pasar el gateway a la Raspberry Pi 5) |
-| DEC-001 | Base RW612 = `hello_world`, superloop (FreeRTOS se pospuso; **la Wi-Fi lo va a requerir** (supuesto, confirmar con rw612-tutor), ver F3) |
+| ADR-0003 | Gateway = Raspberry Pi 5 + Mosquitto con usuario/contraseña; dos modos de red (home/pit) (**Accepted** 2026-11-23) |
+| D1 (23-nov) | MP2 = ambos nodos (rw612-a, esp32-b) publican directo por Wi-Fi/MQTT al broker. El V2V por BLE pasa a la fase siguiente (F5) |
+| D2 (23-nov) | La Pi tiene modos **home** (cliente Wi-Fi) y **pit** (AP «V2V-PIT»); los nodos siempre se configuran para V2V-PIT. Dashboard Node-RED en la laptop |
+| DEC-001 | Base RW612 = `hello_world`, superloop bare-metal. **Reemplazada por DEC-012 para MP2** |
 | DEC-002 | Sensores MP1: HC-SR04, DHT11, pot de freno, pot de TPS (opcional), LEDs, buzzer |
 | DEC-003 / 004 | Arbitraje de severidad y patrones de actuador |
 | DEC-005..008 | Mapa de pines MP1, periodos de muestreo, timebase CTIMER1, criterios de falla del HC-SR04 |
 | DEC-009..011 | Filtro FIR de freno (N=9, fc=2 Hz, fs=20 Hz), muestreo sin deriva, divisores reales |
+| DEC-012 (23-nov) | MP2: el firmware del RW612 pasa del superloop bare-metal (DEC-001) a **FreeRTOS + lwIP**, base `wifi_examples/wifi_mqtt` |
+| OPEN-013 (nodo B) | Resuelto para el nodo B: buzzer **pasivo en GPIO33** |
+| Calibración freno ESP32 | Medida: 170–3010 mV; falla en 80/3090 |
 
 Detalle completo de cada una: `docs/archive/layers/STATUS.md`.
 
@@ -82,20 +88,46 @@ Fecha objetivo: **25-nov-2026** (supuesta; la fecha exacta de entrega aún no se
 
 | Fase | Qué deja funcionando | Fechas | Estado |
 |---|---|---|---|
-| F0 | Reestructura del repo a fases + verificación del estado real (qué compila, qué pasa, qué falta) | 11–12 nov | en curso |
-| F1 | Raspberry Pi como gateway: Mosquitto + Node-RED con dashboard básico, alimentado por el simulador; schema con `brake_pct`/`tps_pct` | 12–14 nov | pendiente |
-| F2 | ESP32 publicando telemetría real + status/LWT en el dashboard | 14–17 nov | pendiente |
-| F3 | RW612 con Wi-Fi + MQTT publicando su telemetría y alertas, partiendo de un ejemplo con coexistencia Wi-Fi + BLE (migración a FreeRTOS) | 14–20 nov | pendiente |
-| F4 | V2V por BLE (obligatorio para la meta): alerta del RW612 → actuador en el ESP32, con Wi-Fi activa al mismo tiempo | 20–24 nov | pendiente |
-| F5 | Demo integrada, evidencia y entregables de IoT | 24–25 nov | pendiente |
+| F0 Reestructura | Repo a fases + verificación del estado real | 11–23 nov | ✅ 23-nov |
+| F1 Pi 5 (broker + modos casa/pits) + dashboard Node-RED en laptop + schema | Broker con usuarios en la Pi, modos home/pit con rollback, dashboard en vivo, schema v0.2 | 23–24 nov | ✅ hecha, salvo la captura del dashboard con nodos reales |
+| F2 ESP32 publicando por Wi-Fi/MQTT | | 23–24 nov | en curso (inestabilidad del ESP32, ver §9) |
+| F3 RW612 publicando por Wi-Fi/MQTT (base: ejemplo wifi del SDK / práctica 3) | | 23–25 nov | ✅ hecha (rw612-a) |
+| F4 Demo MP2 + diagramas de conexión | | 24–25 nov | en curso (diagramas, demo) |
+| F5 V2V por BLE en ambos nodos (Wi-Fi + BLE a la vez en la RW612) | | después de MP2 | pendiente |
+| F6 Roadmap mesh (Thread/802.15.4) para la presentación en NXP | | después de MP2 | pendiente |
 
-F2 y F3 corren en paralelo (personas distintas). El V2V por BLE es parte de la meta,
-así que el lado BLE del ESP32 puede adelantarse durante F2/F3 con un emisor de prueba.
+F2 y F3 corren en paralelo (personas distintas). MP2 se califica con los dos nodos publicando
+directo al broker por Wi-Fi; el BLE V2V va después (F5).
 
 ## 9. Pendientes de Joshua / equipo
 
-- Confirmar la red: Pi 5 como access point (recomendado).
+### Siguiente sesión (en este orden)
+
+a. **El ESP32 pierde mensajes en el Wi-Fi de casa.** El RW612 en la misma red y con el mismo broker
+   va perfecto, así que la causa está del lado del ESP32. Hipótesis, en orden:
+   1. Familia_CM tiene dos BSSID de 2.4 GHz (señal 95 % y 72 %, repetidor/mesh) → registrar
+      BSSID/canal/RSSI conectados y fijar el BSSID más fuerte.
+   2. `esp_mqtt_client_publish` se bloquea con el socket detenido → revisar enqueue/outbox y
+      timeouts de red.
+   3. Arreglar el watchdog de telemetría para que no dependa del estado de MQTT.
+   4. Solo después, el ahorro de energía del Wi-Fi en el perfil de la Pi.
+
+   Repetir la prueba limpia de 10 min.
+b. Captura del dashboard con los dos nodos reales en la Pi → `docs/04-testing/evidence/`.
+c. Diagramas de conexión (prompt S4 en el Project, `claude/MP2_PROMPTS.md`), si no están hechos.
+d. Prueba del modo pit (checklist de `gateway/pi/README.md`; tethering USB del iPhone para internet).
+e. Cerrar MP2: reservar IP fija para la Pi en el router o usar modo pit; borrar
+   `/etc/sudoers.d/v2v-tests` en la Pi; borrar `C:/Users/joshu/pi-sub.opts`; actualizar §8.
+
+### Abiertos
+
+- RW612 no se recupera de un ERR_RTE sostenido.
+- Heap mínimo de FreeRTOS en el RW612: 7.6 KB. F5 (BLE) necesitará más; `coex_wifi_edgefast` es el
+  único ejemplo de coexistencia para FRDM-RW612.
+
+### Generales
+
 - Confirmar la fecha real de entrega (se trabaja con el 25-nov).
 - Asignar quién lleva cada fase (sugerido: Joshua RW612, otro integrante ESP32, otro Pi/dashboard).
-- Preguntas al rw612-tutor para F3/F4: ejemplo base Wi-Fi + MQTT + BLE, coexistencia, memoria.
+- Preguntas al rw612-tutor para F4/F5: coexistencia Wi-Fi + BLE, memoria.
 - Actualizar las instrucciones del Project de claude.ai al método por fases.

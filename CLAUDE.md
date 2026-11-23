@@ -11,8 +11,9 @@ the receiver drives an actuator (LED/shift light, buzzer, haptic, relay).
 
 - Node A: NXP FRDM-RW612, MCUXpresso IDE + SDK. Main node.
 - Node B: ESP32 classic, Arduino IDE. Test/support node.
-- Gateway: Mosquitto + Node-RED on a Raspberry Pi 5 (phase F1); `gateway/docker-compose.yml`
-  remains for local development on a laptop.
+- Gateway: Raspberry Pi 5 with Mosquitto and two network modes, home/pit (`gateway/pi/`, phase F1).
+  Dashboard: Node-RED on the team laptop (`dashboard/`). `gateway/docker-compose.yml` remains
+  for local development on a laptop.
 - Team: Joshua A. Chávez Montero, Mario A. Mireles González, Kevin Rincones Partida, Jair Santana Renteria.
 - Environment: Windows + PowerShell. Give PowerShell commands, not bash.
 
@@ -47,6 +48,10 @@ Each phase follows: **prompt → plan → OK → implement → report → bench 
   reported for the architect to resolve.
 - Closing a phase = update the phase table in `ARQUITECTURA.md` §8 (and §3/§6 if they
   changed) plus a dated entry in `docs/project-notes.md`.
+- Sessions edit every non-secret value themselves, including git-ignored config files; Joshua
+  only types passwords. Ask before any step that needs his hands (connecting boards, pressing
+  buttons), never for editing values.
+- Several sessions may run in parallel: touch only your scope; commits are run one at a time by Joshua.
 - Every session **ends with a commit block** (explicit paths, conventional message,
   never `git add -A`).
 - The layered workflow (L0–L7, `STATUS.md`, handoffs) is frozen in

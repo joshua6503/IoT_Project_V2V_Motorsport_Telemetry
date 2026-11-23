@@ -2,6 +2,22 @@
 
 Short, dated entries. Anything that becomes a lasting decision gets an ADR.
 
+## 2026-11-23
+
+- F1 started. D1: MP2 = both nodes (rw612-a, esp32-b) publish directly over Wi-Fi/MQTT; BLE V2V moves to F5.
+  D2: gateway = Raspberry Pi 5 + Mosquitto with user/password; home/pit network modes (pit = AP
+  "V2V-PIT", broker 10.42.0.1:1883). ADR-0003 rewritten and Accepted. F0 closed.
+- End-of-day state (MP2 sprint). F1 done except the real-node dashboard screenshot. F3 done: `rw612-a`
+  runs FreeRTOS + lwIP (DEC-012, base `wifi_mqtt`), 3082/3082 msgs in 10 min on home Wi-Fi
+  Familia_CM, unstable on the iPhone hotspot. F2 in progress: `esp32-b` publishes but drops on home
+  Wi-Fi (~34 % delivered in a clean 10-min test, TCP stalls errno 119, 20 reconnects); cause is
+  ESP32-side since the RW612 is perfect on the same network/broker. ESP32 passive buzzer on GPIO33
+  (OPEN-013 for node B), brake calibration 170-3010 mV (fault 80/3090). Pi on Familia_CM
+  192.168.0.239 (DHCP); pit mode prepared, untested. Next steps in ARQUITECTURA §9.
+- Contract v0.2: telemetry requires only `node_id`, `ts_ms`, `seq`; added `brake_pct`, `tps_pct`,
+  `sensor_ok`; `temp_c` nullable. Simulator publishes two nodes with LWT; broker/credentials from
+  args or env vars.
+
 ## 2026-11-11
 
 - F0: switched to phase-based workflow. `docs/ARQUITECTURA.md` (Spanish) is now the single
