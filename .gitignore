@@ -23,8 +23,14 @@ mcuxsdk/
 # SDK peripheral drivers land in drivers/ next to our own layer: ignore by name
 **/rw612-node/**/fsl_*.c
 **/rw612-node/**/fsl_*.h
-# Local MCUXpresso IDE project (imported hello_world), not committed
-firmware/rw612-node/V2V_IOT/
+# Local MCUXpresso IDE projects (imported SDK examples) are not committed, EXCEPT the two
+# project descriptors of V2V_IOT/wifi_mqtt (portable: linked folders are relative, see
+# firmware/rw612-node/README.md). Everything else in that folder is SDK copy or build output.
+firmware/rw612-node/V2V_IOT/*
+!firmware/rw612-node/V2V_IOT/wifi_mqtt/
+firmware/rw612-node/V2V_IOT/wifi_mqtt/*
+!firmware/rw612-node/V2V_IOT/wifi_mqtt/.project
+!firmware/rw612-node/V2V_IOT/wifi_mqtt/.cproject
 
 # ---- Arduino ----
 build/
@@ -45,6 +51,7 @@ node_modules/
 
 # ---- Secrets ----
 firmware/esp32-node/esp32-node/config.h
+firmware/rw612-node/app/net_config.h
 .env
 
 # ---- OS / editors ----
