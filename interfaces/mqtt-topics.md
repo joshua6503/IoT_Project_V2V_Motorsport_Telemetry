@@ -1,6 +1,7 @@
 # MQTT topics
 
-Broker: Mosquitto (local, see `gateway/`). Payloads are UTF-8 JSON validated by
+Broker: Mosquitto on the Raspberry Pi 5 (see `gateway/pi/`), port 1883, **username/password
+required** (one user per node: `rw612-a`, `esp32-b`; `dashboard` for the dashboard). Payloads are UTF-8 JSON validated by
 [`payload.schema.json`](payload.schema.json).
 
 ```
@@ -42,14 +43,26 @@ Rationale:
   "node_id": "rw612-a",
   "ts_ms": 123456,
   "seq": 812,
-  "speed_kmh": 42.5,
-  "accel_g": { "x": -0.12, "y": 0.03, "z": 1.01 },
+  "brake_pct": 42.5,
+  "tps_pct": 10.0,
   "temp_c": 36.8,
-  "distance_cm": 250
+  "distance_cm": 250,
+  "sensor_ok": 7
 }
 ```
 
-`distance_cm` may be `null` when the sensor reports no echo.
+| Field | Required | Type | Notes |
+|---|---|---|---|
+| `node_id` | yes | string | same as in the topic |
+| `ts_ms` | yes | uint32 | sender uptime in ms (wraps) |
+| `seq` | yes | uint32 | increments per telemetry message |
+| `brake_pct`, `tps_pct` | no | number 0–100 | percent |
+| `temp_c` | no | number or `null` | `null` on a sensor fault |
+| `distance_cm` | no | number ≥ 0 or `null` | `null` = no echo / fault |
+| `sensor_ok` | no | uint8 bitmask | bit0 distance, bit1 temperature, bit2 brake (`7` = all valid) |
+| `speed_kmh`, `accel_g` | no | number / `{x,y,z}` | reserved for later (IMU/speed) |
+
+Unknown fields are rejected by the schema. A consumer must tolerate missing optional fields.
 
 ### `v2v/rw612-a/alert`
 
