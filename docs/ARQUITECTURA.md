@@ -114,7 +114,8 @@ a. **El ESP32 pierde mensajes en el Wi-Fi de casa.** El RW612 en la misma red y 
 
    Repetir la prueba limpia de 10 min.
 b. Captura del dashboard con los dos nodos reales en la Pi → `docs/04-testing/evidence/`.
-c. Diagramas de conexión (prompt S4 en el Project, `claude/MP2_PROMPTS.md`), si no están hechos.
+c. Diagramas de conexión, si no están hechos. Deben mostrar el **buzzer en GPIO33** (ESP32). El prompt S4 está en el
+   documento del Project de claude.ai `claude/MP2_PROMPTS.md`.
 d. Prueba del modo pit (checklist de `gateway/pi/README.md`; tethering USB del iPhone para internet).
 e. Cerrar MP2: reservar IP fija para la Pi en el router o usar modo pit; borrar
    `/etc/sudoers.d/v2v-tests` en la Pi; borrar `C:/Users/joshu/pi-sub.opts`; actualizar §8.
