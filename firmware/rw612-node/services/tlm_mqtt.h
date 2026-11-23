@@ -33,6 +33,7 @@ typedef struct
     const char *mqtt_user;    /**< NULL or "" = no user name. */
     const char *mqtt_pass;    /**< NULL or "" = no password. */
     uint16_t keepalive_s;     /**< MQTT keep-alive; the broker declares the node dead after 1.5x. */
+    bool wifi_power_save_off; /**< true: switch the driver's IEEE + deep-sleep power save off after each join. */
 } tlm_mqtt_config_t;
 
 /** Counters for the periodic log line and the priority-fallback measurement. */
@@ -67,6 +68,9 @@ bool tlm_mqtt_wifi_up(void);
 
 /** Last data-frame signal level in dBm as reported by the Wi-Fi driver (0 if unknown). */
 int tlm_mqtt_wifi_rssi(void);
+
+/** Current lwIP address of the default netif as text plus its flags ("ip=a.b.c.d up=1 link=1"). */
+void tlm_mqtt_netif_text(char *buf, unsigned n);
 
 /** QoS 0, not retained, to v2v/{node_id}/telemetry. @p json is NUL-free and @p len bytes long. */
 bool tlm_mqtt_publish_telemetry(const char *json, uint16_t len);

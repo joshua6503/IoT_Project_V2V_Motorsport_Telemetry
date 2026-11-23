@@ -252,7 +252,7 @@ DHT11 failures are logged cumulatively: `dht_ok`, `dht_cks` (checksum), `dht_to`
 One line every 200 ms (UART, 115200 8N1): `t dist temp brake brake_f brake_raw tps alert sev fault echo_us echo_err dht_st
 dht_ok dht_cks dht_to dht_nr slot_late_max resyncs wf wf_dc mq mq_dc mq_rc pub_ok pub_err al_drop heap rssi`
 (`wf`/`mq` = link/session up now, `slot_late_max` = worst lateness of the 50 ms pot slot in ms, `heap` = free FreeRTOS heap in bytes,
-`rssi` = dBm from the Wi-Fi driver). After the network starts, one `tasks(name:prio)` line lists every task's priority.
+`rssi` = dBm from the Wi-Fi driver, then `ip= up= link=` of the lwIP default netif). After the network starts, one `tasks(name:prio)` line lists every task's priority.
 `APP_DIAG_NO_SENSE 1` (default 0) does not create the sense task, to measure the Wi-Fi link without the sensor load.
 
 ### F3 measurements (2026-11-23, iPhone hotspot, broker on the laptop)
@@ -263,6 +263,15 @@ average with ~7 % loss (laptop -> hotspot gateway: 14 ms, 0 %), RSSI -25 to -35 
 `slot_late_max` 20 ms, 0 resyncs, free heap ~10 KB of 60 KB. Experiments: fallback A (12 ms echo cap) and B (`sense` prio 2) did not
 improve the link; test C (no sense task, no telemetry) still shows ping 201 ms average with 7 of 87 lost, so the instability is not caused by
 the tasks. A 4096-byte MQTT buffer was not better. Those experiments are reverted. Open items: see the F3 report.
+
+Wi-Fi diagnosis against the Pi on the same hotspot (2026-11-23): the driver starts in IEEE power save (`wifi: power save mode 1`
+in the boot log; the SDK default `CONFIG_WIFI_AUTO_POWER_SAVE 1`, `wifi_config_default.h:56-58`, applied at `wlan.c:6533-6536`).
+`APP_WIFI_POWER_SAVE_OFF 1` switches it off after each join (mode 0 confirmed in the log) but in the one run made with it the board was
+unreachable at layer 2, so the default is 0. Observed on the Pi: while the board retried there were no SYN-RECV entries from it, its ARP
+entry was FAILED/INCOMPLETE, while the ESP32 stayed REACHABLE and the Pi-to-gateway ping had 0 % loss. When the link is good the board
+publishes 5 msg/s with `pub_err=0` for about 65 s, then the path stalls for 15 s or more and Mosquitto publishes the LWT `offline`.
+Once the board stayed in a state where `mqtt_client_connect` returned -4 (`ERR_RTE`) every second while the driver still reported the link up;
+`tlm_mqtt_service()` only re-joins on a link-lost event, so that state is not recovered (not changed in this phase).
 Boot prints the timebase self-test (`ctimer_hz=16000000 prescale=15 ... core_us=1000000` means CTIMER1 is 1 MHz), the ADC scan
 and the Wi-Fi/MQTT progress.
 

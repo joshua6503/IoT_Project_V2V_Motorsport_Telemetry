@@ -42,6 +42,10 @@
  */
 #define APP_DHT11_FRAME_CRITICAL 0
 
+/** 1: turn the Wi-Fi driver's IEEE and deep-sleep power save off after each join (the SDK enables it by default,
+ *  CONFIG_WIFI_AUTO_POWER_SAVE 1 in wifi_config_default.h:56-58; a sleeping client missed ARP/frames on the hotspot). */
+#define APP_WIFI_POWER_SAVE_OFF 0
+
 /** Diagnostic only: 1 = do not create the sense task (Wi-Fi/MQTT link measured without the sensor load; no telemetry is published). */
 #define APP_DIAG_NO_SENSE 0
 

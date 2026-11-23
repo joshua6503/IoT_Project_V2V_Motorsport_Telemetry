@@ -89,6 +89,21 @@ static void link_status_cb(bool link_up)
     }
 }
 
+static void apply_ps_policy(void)
+{
+    enum wlan_ps_mode m = WLAN_ACTIVE;
+    (void)wlan_get_ps_mode(&m);
+    board_log("wifi: power save mode %d (0 active, 1 ieee, 2 deep sleep, 3 both)", (int)m);
+    if ((s_cfg != NULL) && s_cfg->wifi_power_save_off)
+    {
+        int a = wlan_ieeeps_off();
+        int b = wlan_deepsleepps_off();
+        vTaskDelay(pdMS_TO_TICKS(200)); /* the requests are handled by the wlcmgr task */
+        (void)wlan_get_ps_mode(&m);
+        board_log("wifi: power save off requested (rc %d/%d), mode now %d", a, b, (int)m);
+    }
+}
+
 static void log_ip(void)
 {
     char ip[IP4ADDR_STRLEN_MAX];
@@ -144,6 +159,7 @@ bool tlm_mqtt_wifi_join(const tlm_mqtt_config_t *cfg)
     }
     s_link_up = true;
     log_ip();
+    apply_ps_policy();
     return true;
 }
 
@@ -162,6 +178,7 @@ void tlm_mqtt_service(void)
         {
             s_link_up = true;
             log_ip();
+            apply_ps_policy();
         }
         else
         {
@@ -174,6 +191,19 @@ void tlm_mqtt_service(void)
 bool tlm_mqtt_wifi_up(void)
 {
     return s_link_up;
+}
+
+void tlm_mqtt_netif_text(char *buf, unsigned n)
+{
+    char ip[IP4ADDR_STRLEN_MAX] = "none";
+    int up = 0, link = 0;
+    if (netif_default != NULL)
+    {
+        (void)ip4addr_ntoa_r(netif_ip4_addr(netif_default), ip, sizeof ip);
+        up   = netif_is_up(netif_default) ? 1 : 0;
+        link = netif_is_link_up(netif_default) ? 1 : 0;
+    }
+    (void)snprintf(buf, n, "ip=%s up=%d link=%d", ip, up, link);
 }
 
 int tlm_mqtt_wifi_rssi(void)
@@ -250,7 +280,9 @@ static void connect_to_mqtt(void *ctx)
     err_t err = mqtt_client_connect(s_client, &s_broker, s_cfg->broker_port, mqtt_connection_cb, NULL, &s_info);
     if (err != ERR_OK)
     {
-        board_log("mqtt: connect call failed %d, retry in %u ms", (int)err, (unsigned)MQTT_RECONNECT_MS);
+        char nif[48];
+        tlm_mqtt_netif_text(nif, sizeof nif);
+        board_log("mqtt: connect call failed %d (%s), retry in %u ms", (int)err, nif, (unsigned)MQTT_RECONNECT_MS);
         schedule_connect(MQTT_RECONNECT_MS);
     }
 }

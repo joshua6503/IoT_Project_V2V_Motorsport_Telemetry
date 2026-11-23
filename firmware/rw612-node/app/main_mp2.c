@@ -125,6 +125,7 @@ static const tlm_mqtt_config_t s_net_cfg = {
     .mqtt_user   = NET_MQTT_USER,
     .mqtt_pass   = NET_MQTT_PASS,
     .keepalive_s = APP_MQTT_KEEPALIVE_S,
+    .wifi_power_save_off = (APP_WIFI_POWER_SAVE_OFF != 0),
 };
 
 /* ------------------------------------------------------------------------- */
@@ -456,12 +457,14 @@ static void sense_task(void *arg)
 static void log_line(const snapshot_t *s, const tlm_mqtt_stats_t *m)
 {
     char b_dist[16], b_temp[16], b_brake[16], b_brake_f[16], b_tps[16];
-    char line[352];
+    char line[384];
+    char nif[48];
+    tlm_mqtt_netif_text(nif, sizeof nif);
     (void)snprintf(line, sizeof line,
                    "t=%u dist=%s temp=%s brake=%s brake_f=%s brake_raw=%d tps=%s alert=%s sev=%s fault=%d"
                    " echo_us=%u echo_err=%d dht_st=%d dht_ok=%u dht_cks=%u dht_to=%u dht_nr=%u"
                    " slot_late_max=%u resyncs=%u wf=%d wf_dc=%u mq=%d mq_dc=%u mq_rc=%u pub_ok=%u pub_err=%u"
-                   " al_drop=%u heap=%u rssi=%d",
+                   " al_drop=%u heap=%u rssi=%d %s",
                    (unsigned)s->ts_ms, fmt1(b_dist, sizeof b_dist, s->distance_cm),
                    s->temp_valid ? fmt1(b_temp, sizeof b_temp, s->temp_c) : "NA",
                    fmt1(b_brake, sizeof b_brake, s->brake_raw_pct), fmt1(b_brake_f, sizeof b_brake_f, s->brake_filtered_pct),
@@ -471,7 +474,7 @@ static void log_line(const snapshot_t *s, const tlm_mqtt_stats_t *m)
                    (unsigned)s->slot_late_max_ms, (unsigned)s->slot_resyncs, tlm_mqtt_wifi_up() ? 1 : 0,
                    (unsigned)m->wifi_drops, tlm_mqtt_connected() ? 1 : 0, (unsigned)m->mqtt_drops,
                    (unsigned)m->mqtt_reconnects, (unsigned)m->pub_ok, (unsigned)m->pub_err, (unsigned)s_alert_drops,
-                   (unsigned)xPortGetFreeHeapSize(), tlm_mqtt_wifi_rssi());
+                   (unsigned)xPortGetFreeHeapSize(), tlm_mqtt_wifi_rssi(), nif);
     board_log("%s", line);
 }
 
