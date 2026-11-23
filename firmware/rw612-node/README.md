@@ -272,6 +272,23 @@ entry was FAILED/INCOMPLETE, while the ESP32 stayed REACHABLE and the Pi-to-gate
 publishes 5 msg/s with `pub_err=0` for about 65 s, then the path stalls for 15 s or more and Mosquitto publishes the LWT `offline`.
 Once the board stayed in a state where `mqtt_client_connect` returned -4 (`ERR_RTE`) every second while the driver still reported the link up;
 `tlm_mqtt_service()` only re-joins on a link-lost event, so that state is not recovered (not changed in this phase).
+
+Hotspot vs home Wi-Fi (2026-11-23, same firmware, broker on the Pi, `sense` prio 4; home = router "Familia_CM", Pi at 192.168.0.239):
+
+| Metric | iPhone hotspot (3-4 min runs) | Familia_CM (clean 10 min run) |
+|---|---|---|
+| Telemetry delivered to the broker | about 4.5 msg/s, ~91 % of the sent `seq` | 5.0 msg/s, 3082 of 3082 (`seq` 0..3081, none missing) |
+| `pub_err` | ~31 % of attempts | 0 |
+| `wf_dc` / `mq_dc` / `mq_rc` | 0-1 / 0-2 per run / 0-1 | 0 / 0 / 0 (an earlier 10 min run with stray processes of mine on the laptop had `mq_dc=3`, `pub_err=0`) |
+| Ping laptop -> board | 149 ms avg, ~7 % lost, max 881 ms | 41 ms avg, 0 % lost (600/600), p95 112 ms, max 177 ms |
+| Ping Pi -> board | 169 ms avg, 36 % lost (25 s window) | 44 ms avg, 0 % lost (600/600), p95 114 ms, max 147 ms |
+| Join time | 7-10 s, sometimes 70 s to minutes | 7 s |
+| `ERR_RTE` (-4) on connect | seen once | 0 |
+| `[wlcm] Error: MX : Invalid country code.` | every join | not printed |
+| DHT11 failures | 0 (one timeout with `sense` at prio 2) | 0 of 246 reads |
+| Free heap (minimum seen) | ~10 KB | 7.6 KB |
+
+The power-save mode is 1 (IEEE) in both. The link problems seen on the hotspot are not reproduced on the home router.
 Boot prints the timebase self-test (`ctimer_hz=16000000 prescale=15 ... core_us=1000000` means CTIMER1 is 1 MHz), the ADC scan
 and the Wi-Fi/MQTT progress.
 
