@@ -14,6 +14,11 @@ Short, dated entries. Anything that becomes a lasting decision gets an ADR.
   ESP32-side since the RW612 is perfect on the same network/broker. ESP32 passive buzzer on GPIO33
   (OPEN-013 for node B), brake calibration 170-3010 mV (fault 80/3090). Pi on Familia_CM
   192.168.0.239 (DHCP); pit mode prepared, untested. Next steps in ARQUITECTURA §9.
+- DEC-013..015 approved. DEC-013: command contract frozen (closes OPEN-010): `v2v/{node_id}/cmd` and
+  `v2v/all/cmd` (`all` reserved), QoS 1, not retained; `alert` and `clear` payloads in
+  `interfaces/payload.schema.json` (`$defs/cmd`). DEC-014: the dashboard relays `hard_brake` to the other
+  nodes when its toggle is on (remote actuation, not the safety path). DEC-015: MP2 dashboard is Python
+  (`dashboard/python/`), Node-RED stays for NXP. Simulator logs/validates cmd; node firmware for cmd pending.
 - Contract v0.2: telemetry requires only `node_id`, `ts_ms`, `seq`; added `brake_pct`, `tps_pct`,
   `sensor_ok`; `temp_c` nullable. Simulator publishes two nodes with LWT; broker/credentials from
   args or env vars.

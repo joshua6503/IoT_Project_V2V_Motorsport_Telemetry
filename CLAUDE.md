@@ -12,8 +12,9 @@ the receiver drives an actuator (LED/shift light, buzzer, haptic, relay).
 - Node A: NXP FRDM-RW612, MCUXpresso IDE + SDK. Main node.
 - Node B: ESP32 classic, Arduino IDE. Test/support node.
 - Gateway: Raspberry Pi 5 with Mosquitto and two network modes, home/pit (`gateway/pi/`, phase F1).
-  Dashboard: Node-RED on the team laptop (`dashboard/`). `gateway/docker-compose.yml` remains
-  for local development on a laptop.
+  Dashboard: MP2 uses a simple Python dashboard (`dashboard/python/`, DEC-015); Node-RED
+  (`dashboard/node-red/`) is kept for the NXP presentation. Both run on the team laptop.
+  `gateway/docker-compose.yml` remains for local development on a laptop.
 - Team: Joshua A. Chávez Montero, Mario A. Mireles González, Kevin Rincones Partida, Jair Santana Renteria.
 - Environment: Windows + PowerShell. Give PowerShell commands, not bash.
 
@@ -66,7 +67,8 @@ Each phase follows: **prompt → plan → OK → implement → report → bench 
 | `firmware/rw612-node/{app,services,drivers,board}` | RW612 layers (ADR-0005) |
 | `firmware/esp32-node/esp32-node/` | Arduino sketch folder |
 | `gateway/` | docker-compose, mosquitto.conf |
-| `dashboard/node-red/flows.json` | exported Node-RED flows |
+| `dashboard/python/dashboard.py` | MP2 dashboard (Tkinter + paho-mqtt), sends `cmd` |
+| `dashboard/node-red/flows.json` | exported Node-RED flows (NXP presentation) |
 | `tools/` | `sync_protocol.py`, `node-simulator/` |
 | `tests/` | `unit/` (Unity, `make -C tests/unit`), `integration/` (pytest), `hil/` |
 | `hardware/` | `pinout.md`, `bom.md` (TBD) |
@@ -85,6 +87,7 @@ relative include into `interfaces/` fails. `tools/sync_protocol.py` copies
   School deliverables in **Spanish**, under `docs/deliverables/`.
 - Commits: Conventional Commits with optional scope —
   `feat(rw612): ...`, `fix(esp32): ...`, `docs(adr): ...`, `test: ...`, `chore: ...`, `refactor: ...`.
+- Commit messages carry no Co-Authored-By or other attribution lines.
 - Branches: `main` (stable), `feat/...`, `fix/...`, `docs/...`.
 - C: `snake_case` files and symbols; module prefixes `v2v_`, `tlm_`, `alert_`.
 - Secrets: `firmware/esp32-node/esp32-node/config.h` is git-ignored; template is `config.example.h`.
