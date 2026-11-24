@@ -21,6 +21,8 @@ esp32-node/
         └── alert_logic.{h,c}, alert_pattern.{h,c}   (from firmware/common/)
 ```
 
+**Serial port:** this board (node B) enumerates as **COM5** (CH340) on the team laptop (2026-11-23); the RW612 J-Link is COM4.
+
 ## Hardware (pins in `config.example.h`, citations in `hardware/pinout.md`)
 
 | Function | GPIO |
@@ -78,17 +80,59 @@ about 1 s after it notices the drop (twice in a row, telemetry back at 5 Hz with
 Design notes: telemetry (QoS 0) is sent by a small task with `esp_mqtt_client_publish()`;
 `esp_mqtt_client_enqueue()` for QoS 0 only delivered ~1 msg/s and was dropped. `network.timeout_ms` is
 left at the default (a 3 s timeout made the node flap: an MQTT connect takes ~3 s here), Wi-Fi modem
-sleep is off, and if the telemetry task makes no progress for 20 s the node restarts itself (logged).
-Known open point (2026-11-23, 10 min clean test, serial closed): the node is NOT stable against the Pi
-over the home router. The broker saw ~20 `offline` events and only ~1000 of ~2950 expected telemetry
-messages. The board's own log shows `mqtt_client: Writing didn't complete in specified timeout:
-errno=119` / `Error sending ping` while Wi-Fi still reports connected, and the telemetry task blocks
-inside `esp_mqtt_client_publish()` (`sent` frozen, `drop` rising) for minutes; the stuck-task restart
-only fires while MQTT is up, so it can stay muted. Boot counter and reset reason (`boots=`, `rst=` in
-the serial `[st]` line, NVS) show the reboots were the node's own watchdog (`rst=SW`), not power or
-panics. Suspect: Wi-Fi power save on the Pi (`802-11-wireless.powersave` is `default` on `home-wifi`);
-not yet tested. Fix to validate: disable it on the Pi and make the stuck-task restart independent of
-the MQTT state.
+sleep is off, and a watchdog restarts the node on a real stall (see "Wi-Fi stability findings").
+
+### Wi-Fi stability findings (2026-11-23, home network Familia_CM)
+
+Problem: with the default 20 dBm TX power the node lost most of its telemetry on the home Wi-Fi
+(10 min clean test, serial closed: 34 % delivered, ~20 reconnects) while the RW612 on the same
+network and broker delivered 100 %. Symptoms: `mqtt_client: No PING_RESP, disconnected`, `Writing
+didn't complete ... errno=119` / `errno=113`, `esp_mqtt_client_publish()` blocking for 6-10 s, gaps of
+5-38 s (they match lwIP's 3/6/12/24 s TCP retransmit backoff, fixed by the precompiled core).
+The Wi-Fi association itself stayed up (ICMP kept answering during the stalls).
+
+What was measured (broker-side counts from a timestamped `mosquitto_sub`, rw612-a as control):
+
+| Test | Change | esp32-b delivered | offline events |
+|---|---|---|---|
+| 5 min, serial open | baseline (boot scan + diagnostics only) | 92.0 % | 3 |
+| 5 min, serial open | HT20 | 97.4 % | 1 |
+| 10 min, closed | HT20 | 64.4 % | 16 |
+| 10 min, closed | HT20 + 802.11b/g only | 27.6 % (2 watchdog reboots) | 16 |
+| 5 min, serial open | baseline | 96.6 % | 2 |
+| 10 min, closed | baseline | 75.8 % | 11 |
+| 6 min, closed | baseline, status line once per 60 s | 61.9 % | 8 |
+| 6 min, closed | **TX power 8.5 dBm** | **100 %** | **0** |
+| 10 min, closed | **TX power 8.5 dBm + new watchdog (final firmware)** | **100 % (3050/3050)** | **0** |
+
+- **BSSID (rejected):** Familia_CM has two 2.4 GHz BSSIDs on channel 10 (`04:95:E6:DF:3A:51` at -45 dBm and
+  `...3A:81` at -72 dBm in the boot scan). The node joined `...3A:51` every time and never changed; connected RSSI
+  averaged -36 dBm (min -69 in one sample). Pinning would change nothing, so **no `WIFI_BSSID` option exists**;
+  the boot scan only logs the BSSIDs. (If pinning is ever added it must apply only when the scanned SSID equals
+  `WIFI_SSID` and the BSSID is found, so it cannot break the `V2V-PIT` access point.)
+- **HT20 and 802.11b/g only (rejected):** no consistent improvement (`WIFI_FORCE_HT20`, `WIFI_FORCE_11BG`,
+  both left at 0).
+- **Serial / status line (rejected as a cause):** serial-open runs looked better than closed runs, but a build that
+  prints the status line once per minute was equally bad when closed.
+- **TX power (fix):** `WIFI_TX_POWER_DBM_X4 34` (8.5 dBm) made all the stalls disappear: 2 clean runs
+  (6 and 10 min) against 6 bad ones at the default power. **The mechanism is not proven.** Candidates: current peaks of
+  the 20 dBm transmitter on the laptop's bus power, or the strong signal overloading the mesh node (RSSI is -31 to -36 dBm,
+  the board sits next to it). To tell them apart, repeat the 20 dBm test powered from a wall USB charger. Open point:
+  8.5 dBm reduces range, so re-check it in pit mode (V2V-PIT) and at the real distance. Remove the define to go back to the default.
+- Not changed (no evidence they were needed): `network.timeout_ms` (default 10 s; 3 s flapped before), keepalive (10 s,
+  same as the RW612), publish path. lwIP timers and buffers are fixed by the precompiled core.
+
+Watchdog (final): the node restarts itself, independent of the MQTT state, when (a) the telemetry queue is full and
+the publish task made no progress for 20 s, or (b) Wi-Fi is up but no telemetry was accepted by the client for 60 s.
+The reason is printed (`[wd] restarting node: ...`) and stored in NVS; the serial `[boot]` and `[st]` lines show
+`boots`, `rst` (this boot), `prev` (previous boot) and `wd` (last watchdog reason, with the boot number).
+Note: with the broker down for more than 60 s while Wi-Fi is up, rule (b) reboots the node every ~60 s (seq restarts).
+
+Diagnostics in the 1 Hz `[st]` line: `bssid`, `ch`, `rssi`, `pubmax` (longest publish in the last second), `pubok`/`pubfail`,
+`errno=<type>/<errno>` of the last MQTT transport error. The boot log lists every BSSID of the SSID (`[wifi] scan:`).
+
+Test method: one timestamped `mosquitto_sub` for both nodes, serial port closed, counted per minute on the broker
+side; the boot counter and reset reason are read once at the end (open the port without toggling DTR/RTS or it resets the board).
 
 ## Why a copied header
 

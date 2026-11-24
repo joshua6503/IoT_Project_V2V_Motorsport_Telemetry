@@ -60,6 +60,12 @@
 #define RECONNECT_MAX_MS  30000u /* ...capped at 30 s                          */
 #define WIFI_RETRY_MS     15000u /* force a Wi-Fi reconnect if no IP this long */
 
+/* Wi-Fi radio experiments (esp32-b stability, see README). 1 = apply.         */
+#define WIFI_FORCE_HT20 0 /* 20 MHz channel width (tested, no help)             */
+#define WIFI_FORCE_11BG 0 /* b/g only, 802.11n off (tested, no help)          */
+#define WIFI_TX_POWER_DBM_X4 34 /* Wi-Fi TX power in 0.25 dBm units: 34 = 8.5 dBm. */
+                                /* Fixed the stalls on the bench (README); remove the line for the 20 dBm default */
+
 /* ------------------------------------------------------------------------- */
 /* Local logic. All values are bench defaults, not measured.                  */
 /* ------------------------------------------------------------------------- */

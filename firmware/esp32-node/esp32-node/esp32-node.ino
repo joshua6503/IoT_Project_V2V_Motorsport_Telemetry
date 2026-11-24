@@ -32,6 +32,8 @@ static uint32_t s_tlm_drop   = 0;
 /* Boot diagnostics: reboot counter and reset reason, persisted in NVS, serial only. */
 static uint32_t    s_boot_count   = 0;
 static const char *s_reset_reason = "?";
+static char        s_prev_rst[16]  = "?"; /* reset reason of the previous boot (NVS) */
+static char        s_wd_reason[80] = "-"; /* last watchdog restart reason (NVS), "-" if none */
 
 static const char *reset_reason_str(esp_reset_reason_t r)
 {
@@ -159,10 +161,13 @@ void setup()
     prefs.begin("v2v", false);
     s_boot_count = prefs.getUInt("boots", 0) + 1;
     prefs.putUInt("boots", s_boot_count);
+    prefs.getString("rst", "?").toCharArray(s_prev_rst, sizeof(s_prev_rst));
+    prefs.getString("wd", "-").toCharArray(s_wd_reason, sizeof(s_wd_reason));
     s_reset_reason = reset_reason_str(esp_reset_reason());
     prefs.putString("rst", s_reset_reason);
     prefs.end();
-    Serial.printf("[boot] count=%lu reset_reason=%s\n", (unsigned long)s_boot_count, s_reset_reason);
+    Serial.printf("[boot] count=%lu reset_reason=%s prev_rst=%s wd=\"%s\"\n", (unsigned long)s_boot_count,
+                  s_reset_reason, s_prev_rst, s_wd_reason);
 
     io_init();
 #if defined(BUZZER_SELFTEST) && BUZZER_SELFTEST
@@ -205,10 +210,12 @@ void loop()
 
     if (due(now, &s_next_status_ms, STATUS_LOG_MS))
     {
-        Serial.printf("[st] wifi=%d mqtt=%d brake=%.1f%% (%lu mV) sensor_ok=%u alert=%s tlm sent=%lu drop=%lu boots=%lu rst=%s\n",
+        char diag[128];
+        net_diag_str(diag, sizeof(diag));
+        Serial.printf("[st] wifi=%d mqtt=%d brake=%.1f%% (%lu mV) sensor_ok=%u alert=%s tlm sent=%lu drop=%lu boots=%lu rst=%s prev=%s wd=\"%s\" %s\n",
                       (int)net_wifi_connected(), (int)net_mqtt_connected(), (double)s_brake_pct,
                       (unsigned long)s_brake_mv, (unsigned)s_sensor_ok, alert_type_str(s_alert.type),
                       (unsigned long)s_tlm_sent, (unsigned long)s_tlm_drop, (unsigned long)s_boot_count,
-                      s_reset_reason);
+                      s_reset_reason, s_prev_rst, s_wd_reason, diag);
     }
 }
