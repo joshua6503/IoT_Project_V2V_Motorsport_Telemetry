@@ -73,6 +73,18 @@ bool board_adc_read_raw(board_adc_t ch, int32_t *raw);
  */
 bool board_adc_read_channel_raw(uint8_t channel, int32_t *raw);
 
+/**
+ * @brief Diagnostic (brake-range investigation): raw conversions of the ADC's own internal sources with the
+ *        same configuration as the pots, in this order: vref_12, vbat_s, vssa (kADC_VREF, kADC_VBATS, kADC_VSSA,
+ *        fsl_adc.h:316-320; kADC_TEMPP is compiled out for the RW612, fsl_adc.h:322-324).
+ *
+ * Reading the internal reference/ground next to the pot separates "the ADC scale changed" from "the input
+ * voltage changed". Same rules as board_adc_read_raw(): call from one task only.
+ * @param[out] out BOARD_ADC_INTERNAL_COUNT values; a source that does not convert in time gives INT32_MIN there.
+ */
+#define BOARD_ADC_INTERNAL_COUNT 3u
+void board_adc_read_internal(int32_t out[BOARD_ADC_INTERNAL_COUNT]);
+
 /** Last ADC conversion: full 32-bit result word and FIFO data count seen before the read. */
 void board_adc_last_diag(uint32_t *raw32, uint8_t *fifo_count);
 

@@ -102,6 +102,9 @@ typedef struct
     int echo_err;
     uint32_t slot_late_max_ms; /* worst lateness of the 50 ms pot slot (DEC-010 monitoring) */
     uint32_t slot_resyncs;     /* times the grid was resynchronised (more than one period late) */
+    bool rem_active;           /* a dashboard command (DEC-013) alert is pending */
+    v2v_severity_t rem_sev;
+    int32_t adc_int[BOARD_ADC_INTERNAL_COUNT]; /* APP_ADC_DIAG: vref_12, vbat_s, vssa raw (INT32_MIN = none) */
 } snapshot_t;
 
 typedef struct
@@ -114,7 +117,15 @@ typedef struct
 
 static QueueHandle_t s_snap_q;
 static QueueHandle_t s_alert_q;
+static QueueHandle_t s_remote_q; /* tlm task -> sense task: accepted dashboard commands (DEC-013) */
 static volatile uint32_t s_alert_drops; /* alert events lost because the queue was full */
+
+/* Command counters, written by the tlm task only. */
+static alert_cmd_dedupe_t s_dedupe;
+static uint32_t s_cmd_ok;
+static uint32_t s_cmd_bad;
+static uint32_t s_cmd_dup;
+static uint32_t s_remote_drops;
 
 static const tlm_mqtt_config_t s_net_cfg = {
     .node_id     = APP_NODE_ID,
@@ -136,6 +147,8 @@ static const char *alert_name(v2v_alert_type_t t)
 {
     switch (t)
     {
+        case V2V_ALERT_MANUAL:
+            return "MANUAL";
         case V2V_ALERT_HARD_BRAKE:
             return "HARD_BRAKE";
         case V2V_ALERT_OBSTACLE:
@@ -274,6 +287,8 @@ static void sense_task(void *arg)
 
     uint32_t dht_ok = 0u, dht_cks = 0u, dht_to = 0u, dht_nr = 0u;
     uint32_t slot_late_max = 0u, slot_resyncs = 0u;
+    int32_t adc_int[BOARD_ADC_INTERNAL_COUNT] = {INT32_MIN, INT32_MIN, INT32_MIN};
+    unsigned diag_slot     = 0u;
     uint16_t alert_seq                = 0u;
     v2v_alert_type_t last_alert_type  = V2V_ALERT_NONE;
     v2v_severity_t last_alert_sev     = V2V_SEVERITY_INFO;
@@ -373,6 +388,14 @@ static void sense_task(void *arg)
                 }
 #endif
             }
+#if APP_ADC_DIAG
+            if ((diag_slot++ % APP_ADC_DIAG_EVERY) == 0u)
+            {
+                board_adc_read_internal(adc_int);
+            }
+#else
+            (void)diag_slot;
+#endif
             has_tps = pot_read(&pot_tps, &tps, NULL);
             if (!has_tps)
             {
@@ -434,6 +457,11 @@ static void sense_task(void *arg)
             snap.echo_err              = (int)hcsr04_last_err();
             snap.slot_late_max_ms      = slot_late_max;
             snap.slot_resyncs          = slot_resyncs;
+            snap.rem_active            = alert_actuation_remote_active(&snap.rem_sev);
+            for (unsigned i = 0u; i < BOARD_ADC_INTERNAL_COUNT; i++)
+            {
+                snap.adc_int[i] = adc_int[i];
+            }
             (void)xQueueOverwrite(s_snap_q, &snap);
         }
 
@@ -442,6 +470,13 @@ static void sense_task(void *arg)
         {
             t_hcsr04 = now;
             dist_cm  = hcsr04_read_cm();
+        }
+
+        /* Dashboard commands (DEC-013): non-blocking; they only add a remote alert on top of the local one. */
+        alert_cmd_t rc;
+        while (xQueueReceive(s_remote_q, &rc, 0) == pdTRUE)
+        {
+            alert_actuation_remote(&rc, board_time_ms());
         }
 
         alert_actuation_update(&alert, tlm.tps_pct, board_time_ms());
@@ -457,14 +492,18 @@ static void sense_task(void *arg)
 static void log_line(const snapshot_t *s, const tlm_mqtt_stats_t *m)
 {
     char b_dist[16], b_temp[16], b_brake[16], b_brake_f[16], b_tps[16];
-    char line[384];
+    char line[640];
     char nif[48];
     tlm_mqtt_netif_text(nif, sizeof nif);
     (void)snprintf(line, sizeof line,
                    "t=%u dist=%s temp=%s brake=%s brake_f=%s brake_raw=%d tps=%s alert=%s sev=%s fault=%d"
                    " echo_us=%u echo_err=%d dht_st=%d dht_ok=%u dht_cks=%u dht_to=%u dht_nr=%u"
                    " slot_late_max=%u resyncs=%u wf=%d wf_dc=%u mq=%d mq_dc=%u mq_rc=%u pub_ok=%u pub_err=%u"
-                   " al_drop=%u heap=%u rssi=%d %s",
+                   " al_drop=%u heap=%u heap_min=%u rssi=%d rem=%s sub=%u cmd_rx=%u cmd_ok=%u cmd_bad=%u cmd_dup=%u cmd_qd=%u"
+#if APP_ADC_DIAG
+                   " adc_vref=%d adc_vbat=%d adc_vss=%d"
+#endif
+                   " %s",
                    (unsigned)s->ts_ms, fmt1(b_dist, sizeof b_dist, s->distance_cm),
                    s->temp_valid ? fmt1(b_temp, sizeof b_temp, s->temp_c) : "NA",
                    fmt1(b_brake, sizeof b_brake, s->brake_raw_pct), fmt1(b_brake_f, sizeof b_brake_f, s->brake_filtered_pct),
@@ -474,8 +513,53 @@ static void log_line(const snapshot_t *s, const tlm_mqtt_stats_t *m)
                    (unsigned)s->slot_late_max_ms, (unsigned)s->slot_resyncs, tlm_mqtt_wifi_up() ? 1 : 0,
                    (unsigned)m->wifi_drops, tlm_mqtt_connected() ? 1 : 0, (unsigned)m->mqtt_drops,
                    (unsigned)m->mqtt_reconnects, (unsigned)m->pub_ok, (unsigned)m->pub_err, (unsigned)s_alert_drops,
-                   (unsigned)xPortGetFreeHeapSize(), tlm_mqtt_wifi_rssi(), nif);
+                   (unsigned)xPortGetFreeHeapSize(), (unsigned)xPortGetMinimumEverFreeHeapSize(), tlm_mqtt_wifi_rssi(),
+                   s->rem_active ? severity_name(s->rem_sev) : "-",
+                   (unsigned)m->sub_ok, (unsigned)m->cmd_rx, (unsigned)s_cmd_ok, (unsigned)s_cmd_bad, (unsigned)s_cmd_dup,
+                   (unsigned)(m->cmd_q_drop + s_remote_drops),
+#if APP_ADC_DIAG
+                   (int)s->adc_int[0], (int)s->adc_int[1], (int)s->adc_int[2],
+#endif
+                   nif);
     board_log("%s", line);
+}
+
+/** Drain the commands received on v2v/{node}/cmd and v2v/all/cmd: log, de-duplicate, hand over to the sense task. */
+static void handle_commands(void)
+{
+    tlm_mqtt_cmd_t m;
+    while (tlm_mqtt_cmd_poll(&m))
+    {
+        const char *topic = m.broadcast ? "all" : "node";
+        if (m.status != ALERT_CMD_OK)
+        {
+            s_cmd_bad++;
+            board_log("cmd: ignored %s topic=%s", alert_cmd_status_name(m.status), topic);
+            continue;
+        }
+        if (alert_cmd_dedupe_seen(&s_dedupe, &m.cmd))
+        {
+            s_cmd_dup++;
+            board_log("cmd: duplicate origin=%s seq=%u topic=%s", m.cmd.origin, (unsigned)m.cmd.seq, topic);
+            continue;
+        }
+        s_cmd_ok++;
+        if (m.cmd.kind == ALERT_CMD_ALERT)
+        {
+            board_log("cmd: alert %s %s %ums seq=%u origin=%s topic=%s%s%s",
+                      severity_name(m.cmd.severity), alert_name(m.cmd.alert_type), (unsigned)m.cmd.duration_ms,
+                      (unsigned)m.cmd.seq, m.cmd.origin, topic, (m.cmd.source_node[0] != '\0') ? " source=" : "",
+                      m.cmd.source_node);
+        }
+        else
+        {
+            board_log("cmd: clear seq=%u origin=%s topic=%s", (unsigned)m.cmd.seq, m.cmd.origin, topic);
+        }
+        if (xQueueSend(s_remote_q, &m.cmd, 0) != pdTRUE)
+        {
+            s_remote_drops++;
+        }
+    }
 }
 
 static void publish_telemetry(const snapshot_t *s, uint32_t seq)
@@ -559,6 +643,7 @@ static void tlm_task(void *arg)
         vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(APP_TLM_TICK_MS));
         tlm_mqtt_service();
         drain_alerts();
+        handle_commands();
 
         if ((++tick % per_tlm) != 0u)
         {
@@ -609,9 +694,11 @@ int main(void)
     }
 #endif
 
-    s_snap_q  = xQueueCreate(1, sizeof(snapshot_t));
-    s_alert_q = xQueueCreate(APP_ALERT_QUEUE_LEN, sizeof(alert_event_t));
-    if ((s_snap_q == NULL) || (s_alert_q == NULL) ||
+    alert_cmd_dedupe_init(&s_dedupe);
+    s_snap_q   = xQueueCreate(1, sizeof(snapshot_t));
+    s_alert_q  = xQueueCreate(APP_ALERT_QUEUE_LEN, sizeof(alert_event_t));
+    s_remote_q = xQueueCreate(APP_REMOTE_QUEUE_LEN, sizeof(alert_cmd_t));
+    if ((s_snap_q == NULL) || (s_alert_q == NULL) || (s_remote_q == NULL) ||
         #if !APP_DIAG_NO_SENSE
         (xTaskCreate(sense_task, "sense", APP_SENSE_STACK_WORDS, NULL, APP_SENSE_PRIO, NULL) != pdPASS) ||
 #endif

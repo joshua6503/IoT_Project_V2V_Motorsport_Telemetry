@@ -35,6 +35,9 @@
 
 #define APP_ALERT_QUEUE_LEN 8u
 
+/** tlm task -> sense task: accepted dashboard commands (DEC-013). A command is a rare human action; 4 is plenty. */
+#define APP_REMOTE_QUEUE_LEN 4u
+
 /**
  * 1: wrap only the DHT11 40-bit frame read (about 4-5 ms) in taskENTER_CRITICAL, masking
  * interrupts at or below configMAX_SYSCALL_INTERRUPT_PRIORITY (FreeRTOSConfigBoard.h:74,81).
@@ -45,6 +48,12 @@
 /** 1: turn the Wi-Fi driver's IEEE and deep-sleep power save off after each join (the SDK enables it by default,
  *  CONFIG_WIFI_AUTO_POWER_SAVE 1 in wifi_config_default.h:56-58; a sleeping client missed ARP/frames on the hotspot). */
 #define APP_WIFI_POWER_SAVE_OFF 0
+
+/** Diagnostic: 1 = every APP_ADC_DIAG_EVERY pot slots also convert the ADC's internal sources (vref_12, vbat_s,
+ *  vssa) and print them in the log line as `adc_vref= adc_vbat= adc_vss=` (INT32_MIN = no result).
+ *  Separates a changed ADC scale from a changed input voltage. Default 0. */
+#define APP_ADC_DIAG       0
+#define APP_ADC_DIAG_EVERY 4u
 
 /** Diagnostic only: 1 = do not create the sense task (Wi-Fi/MQTT link measured without the sensor load; no telemetry is published). */
 #define APP_DIAG_NO_SENSE 0

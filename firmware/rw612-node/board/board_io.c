@@ -302,6 +302,25 @@ bool board_adc_read_raw(board_adc_t ch, int32_t *raw)
     }
 }
 
+/* Internal sources of adc_channel_source_t (fsl_adc.h:316-320): kADC_VREF, kADC_VBATS, kADC_VSSA.
+ * A source that times out once is skipped afterwards, so a source this configuration cannot convert costs
+ * the 5 ms timeout only one time. */
+void board_adc_read_internal(int32_t out[BOARD_ADC_INTERNAL_COUNT])
+{
+    static const adc_channel_source_t src[BOARD_ADC_INTERNAL_COUNT] = {kADC_VREF, kADC_VBATS, kADC_VSSA};
+    static bool dead[BOARD_ADC_INTERNAL_COUNT];
+    for (unsigned i = 0u; i < BOARD_ADC_INTERNAL_COUNT; i++)
+    {
+        int32_t v = INT32_MIN;
+        if (!dead[i] && !adc_convert(src[i], &v))
+        {
+            dead[i] = true;
+            v       = INT32_MIN;
+        }
+        out[i] = dead[i] ? INT32_MIN : v;
+    }
+}
+
 bool board_adc_read_channel_raw(uint8_t channel, int32_t *raw)
 {
     /* Single-ended channels 0..7 vs VSSA map 1:1 onto adc_channel_source_t (fsl_adc.h). */

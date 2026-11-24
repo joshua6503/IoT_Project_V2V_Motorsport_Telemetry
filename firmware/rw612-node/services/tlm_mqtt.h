@@ -18,6 +18,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "alert_cmd.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -44,7 +46,18 @@ typedef struct
     uint32_t mqtt_reconnects;  /**< MQTT connections established after the first one. */
     uint32_t pub_ok;
     uint32_t pub_err;          /**< mqtt_publish() refused (buffer / in-flight table full) or not connected. */
+    uint32_t cmd_rx;           /**< Complete messages received on the cmd topics (valid or not). */
+    uint32_t cmd_q_drop;       /**< Received commands lost because the hand-over queue was full. */
+    uint32_t sub_ok;           /**< Number of the two cmd subscriptions acknowledged in this session (0..2). */
 } tlm_mqtt_stats_t;
+
+/** One message received on v2v/{node_id}/cmd or v2v/all/cmd, already parsed (DEC-013). */
+typedef struct
+{
+    alert_cmd_status_t status; /**< ALERT_CMD_OK, or why it must be ignored (then @c cmd is zeroed). */
+    bool broadcast;            /**< true: arrived on v2v/all/cmd. */
+    alert_cmd_t cmd;
+} tlm_mqtt_cmd_t;
 
 /**
  * @brief Initialise the Wi-Fi driver and block until the node has joined the access point and has an IP.
@@ -77,6 +90,14 @@ bool tlm_mqtt_publish_telemetry(const char *json, uint16_t len);
 
 /** QoS 1, not retained, to v2v/{node_id}/alert. */
 bool tlm_mqtt_publish_alert(const char *json, uint16_t len);
+
+/**
+ * Next received command, if any (non-blocking). Commands arrive on v2v/{node_id}/cmd and v2v/all/cmd
+ * (QoS 1, not retained); the module re-subscribes on every MQTT (re)connect. Parsing is pure
+ * (alert_cmd_parse) and runs on the lwIP thread; the tlm task applies de-duplication and logging.
+ * Receiving a command never publishes anything.
+ */
+bool tlm_mqtt_cmd_poll(tlm_mqtt_cmd_t *out);
 
 /** Snapshot of the counters. */
 void tlm_mqtt_get_stats(tlm_mqtt_stats_t *out);

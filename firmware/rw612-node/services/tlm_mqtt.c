@@ -10,8 +10,18 @@
  *  - middleware/lwip/src/include/lwip/apps/mqtt.h:68-87 mqtt_connect_client_info_t (user, pass, will_*)
  *  - components/edgefast_wifi/include/wpl.h WPL_* API (WPL_Join takes a non-const label)
  *
- * Differences from the example: no subscriptions, no DNS (IPv4 literal), the broker connection is
- * retried forever, the Wi-Fi join is retried instead of __BKPT, and credentials are never printed.
+ *  - boards/frdmrw612/wifi_examples/wifi_mqtt/mqtt_freertos.c:96-176 subscribe + incoming publish
+ *    callbacks (mqtt_set_inpub_callback, mqtt_subscribe from the connection callback)
+ *  - middleware/lwip/src/include/lwip/apps/mqtt.h:136 MQTT_DATA_FLAG_LAST, :151 data cb, :163 publish cb,
+ *    :188 mqtt_set_inpub_callback, :195 mqtt_subscribe
+ *  - middleware/lwip/src/apps/mqtt/mqtt.c:1315-1322 mqtt_client_connect keeps the incoming callbacks
+ *    (so they are set once), :762-782 publish cb once per message, data cb per chunk, PUBACK sent by lwIP
+ *  - middleware/lwip/src/include/lwip/apps/mqtt_opts.h:64 rx buffer 128 B (payloads arrive in chunks),
+ *    :71 four requests in flight
+ *
+ * Differences from the example: only the two DEC-013 command topics are subscribed (QoS 1, again on every
+ * reconnect, retried until acknowledged), no DNS (IPv4 literal), the broker connection is retried forever,
+ * the Wi-Fi join is retried instead of __BKPT, and credentials are never printed.
  */
 #include "tlm_mqtt.h"
 
@@ -19,6 +29,7 @@
 #include <string.h>
 
 #include "FreeRTOS.h"
+#include "queue.h"
 #include "task.h"
 
 #include "lwip/apps/mqtt.h"
@@ -39,12 +50,16 @@
 #define MQTT_REFUSED_RETRY_MS  10000u
 #define TOPIC_MAX              48u
 #define PAYLOAD_MAX            48u
+#define SUB_RETRY_MS           3000u
+#define CMD_QUEUE_LEN          4u
+#define TOPIC_ALL_CMD          "v2v/all/cmd"
 
 static const tlm_mqtt_config_t *s_cfg;
 
 static char s_topic_tlm[TOPIC_MAX];
 static char s_topic_alert[TOPIC_MAX];
 static char s_topic_status[TOPIC_MAX];
+static char s_topic_cmd[TOPIC_MAX];
 static char s_will_msg[PAYLOAD_MAX];
 static char s_online_msg[PAYLOAD_MAX];
 static int s_online_len;
@@ -63,6 +78,17 @@ static volatile uint32_t s_mqtt_drops;
 static volatile uint32_t s_mqtt_reconnects;
 static volatile uint32_t s_pub_ok;
 static volatile uint32_t s_pub_err;
+static volatile uint32_t s_cmd_rx;
+static volatile uint32_t s_cmd_q_drop;
+
+/* DEC-013 command intake. All of this runs on the lwIP tcpip thread; the tlm task only reads s_cmd_q. */
+static QueueHandle_t s_cmd_q;
+static char s_in_buf[ALERT_CMD_MAX_LEN];
+static size_t s_in_len;
+static bool s_in_overflow;
+static int s_in_topic; /* 0 = not ours (ignore), 1 = v2v/{node}/cmd, 2 = v2v/all/cmd */
+static bool s_sub_ok[2];
+static volatile uint32_t s_sub_ok_count;
 
 static char s_label[] = WIFI_LABEL; /* WPL_Join() takes a non-const char * */
 
@@ -223,6 +249,114 @@ static void schedule_connect(uint32_t delay_ms)
     sys_timeout(delay_ms, connect_to_mqtt, NULL);
 }
 
+/* ---- DEC-013 commands: incoming publishes (mqtt.c:762-782) ---- */
+
+/** Once per received message, before its data (mqtt.h:163). The topic is only valid during this call. */
+static void incoming_publish_cb(void *arg, const char *topic, u32_t tot_len)
+{
+    (void)arg;
+    s_in_len      = 0u;
+    s_in_overflow = (tot_len > ALERT_CMD_MAX_LEN);
+    if (strcmp(topic, s_topic_cmd) == 0)
+    {
+        s_in_topic = 1;
+    }
+    else if (strcmp(topic, TOPIC_ALL_CMD) == 0)
+    {
+        s_in_topic = 2;
+    }
+    else
+    {
+        s_in_topic = 0;
+    }
+}
+
+/** Once per chunk; the last one carries MQTT_DATA_FLAG_LAST (mqtt.h:136,151). */
+static void incoming_data_cb(void *arg, const u8_t *data, u16_t len, u8_t flags)
+{
+    (void)arg;
+    if (s_in_topic == 0)
+    {
+        return;
+    }
+    if (!s_in_overflow)
+    {
+        if ((s_in_len + len) <= sizeof s_in_buf)
+        {
+            memcpy(&s_in_buf[s_in_len], data, len);
+            s_in_len += len;
+        }
+        else
+        {
+            s_in_overflow = true;
+        }
+    }
+    if ((flags & MQTT_DATA_FLAG_LAST) == 0u)
+    {
+        return;
+    }
+
+    tlm_mqtt_cmd_t msg;
+    msg.broadcast = (s_in_topic == 2);
+    msg.status    = s_in_overflow ? ALERT_CMD_ERR_TOO_LONG : alert_cmd_parse(s_in_buf, s_in_len, &msg.cmd);
+    if (s_in_overflow)
+    {
+        memset(&msg.cmd, 0, sizeof msg.cmd);
+    }
+    s_cmd_rx++;
+    s_in_topic = 0;
+    if ((s_cmd_q == NULL) || (xQueueSend(s_cmd_q, &msg, 0) != pdTRUE))
+    {
+        s_cmd_q_drop++;
+    }
+}
+
+/* ---- DEC-013 commands: subscribe on every (re)connect (mqtt.h:195, mqtt_freertos.c:150-170) ---- */
+
+static void subscribe_cb(void *arg, err_t err)
+{
+    int idx = (int)(intptr_t)arg;
+    if (err == ERR_OK)
+    {
+        if (!s_sub_ok[idx])
+        {
+            s_sub_ok[idx] = true;
+            s_sub_ok_count++;
+            board_log("mqtt: subscribed %s (QoS 1)", (idx == 0) ? s_topic_cmd : TOPIC_ALL_CMD);
+        }
+    }
+    else
+    {
+        board_log("mqtt: subscribe %s failed %d", (idx == 0) ? s_topic_cmd : TOPIC_ALL_CMD, (int)err);
+    }
+}
+
+static void subscribe_cmd_topics(void *ctx)
+{
+    (void)ctx;
+    sys_untimeout(subscribe_cmd_topics, NULL);
+    if (!s_connected || (s_client == NULL))
+    {
+        return; /* the next ACCEPTED connection starts over */
+    }
+    for (int i = 0; i < 2; i++)
+    {
+        if (!s_sub_ok[i])
+        {
+            err_t err = mqtt_subscribe(s_client, (i == 0) ? s_topic_cmd : TOPIC_ALL_CMD, 1, subscribe_cb,
+                                       (void *)(intptr_t)i);
+            if (err != ERR_OK)
+            {
+                board_log("mqtt: subscribe call %d failed %d", i, (int)err);
+            }
+        }
+    }
+    if (!(s_sub_ok[0] && s_sub_ok[1]))
+    {
+        sys_timeout(SUB_RETRY_MS, subscribe_cmd_topics, NULL); /* until both are acknowledged */
+    }
+}
+
 static void mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection_status_t status)
 {
     (void)arg;
@@ -245,10 +379,18 @@ static void mqtt_connection_cb(mqtt_client_t *client, void *arg, mqtt_connection
                 s_pub_err++;
                 board_log("%s", "mqtt: online status publish failed");
             }
+            /* The broker forgot our subscriptions (clean session): subscribe again on every connect. */
+            s_sub_ok[0]    = false;
+            s_sub_ok[1]    = false;
+            s_sub_ok_count = 0u;
+            subscribe_cmd_topics(NULL);
             break;
 
         case MQTT_CONNECT_DISCONNECTED:
         case MQTT_CONNECT_TIMEOUT:
+            s_sub_ok[0]    = false;
+            s_sub_ok[1]    = false;
+            s_sub_ok_count = 0u;
             if (was_connected)
             {
                 s_mqtt_drops++;
@@ -307,10 +449,12 @@ bool tlm_mqtt_start(void)
     int a = snprintf(s_topic_tlm, sizeof s_topic_tlm, "v2v/%s/telemetry", s_cfg->node_id);
     int b = snprintf(s_topic_alert, sizeof s_topic_alert, "v2v/%s/alert", s_cfg->node_id);
     int c = snprintf(s_topic_status, sizeof s_topic_status, "v2v/%s/status", s_cfg->node_id);
+    int d = snprintf(s_topic_cmd, sizeof s_topic_cmd, "v2v/%s/cmd", s_cfg->node_id);
     s_online_len = tlm_json_status(s_online_msg, sizeof s_online_msg, s_cfg->node_id, true);
     int w        = tlm_json_status(s_will_msg, sizeof s_will_msg, s_cfg->node_id, false);
-    if ((a <= 0) || (b <= 0) || (c <= 0) || ((size_t)a >= sizeof s_topic_tlm) || ((size_t)b >= sizeof s_topic_alert) ||
-        ((size_t)c >= sizeof s_topic_status) || (s_online_len < 0) || (w < 0))
+    if ((a <= 0) || (b <= 0) || (c <= 0) || (d <= 0) || ((size_t)a >= sizeof s_topic_tlm) ||
+        ((size_t)b >= sizeof s_topic_alert) || ((size_t)c >= sizeof s_topic_status) ||
+        ((size_t)d >= sizeof s_topic_cmd) || (s_online_len < 0) || (w < 0))
     {
         board_log("%s", "mqtt: invalid node_id");
         return false;
@@ -326,8 +470,20 @@ bool tlm_mqtt_start(void)
     s_info.will_qos    = 1;
     s_info.will_retain = 1;
 
+    s_cmd_q = xQueueCreate(CMD_QUEUE_LEN, sizeof(tlm_mqtt_cmd_t));
+    if (s_cmd_q == NULL)
+    {
+        board_log("%s", "mqtt: command queue creation failed (heap?)");
+        return false;
+    }
+
     LOCK_TCPIP_CORE();
     s_client = mqtt_client_new();
+    if (s_client != NULL)
+    {
+        /* Set once: mqtt_client_connect() keeps the incoming callbacks across reconnects (mqtt.c:1315-1322). */
+        mqtt_set_inpub_callback(s_client, incoming_publish_cb, incoming_data_cb, NULL);
+    }
     UNLOCK_TCPIP_CORE();
     if (s_client == NULL)
     {
@@ -390,4 +546,12 @@ void tlm_mqtt_get_stats(tlm_mqtt_stats_t *out)
     out->mqtt_reconnects = s_mqtt_reconnects;
     out->pub_ok          = s_pub_ok;
     out->pub_err         = s_pub_err;
+    out->cmd_rx          = s_cmd_rx;
+    out->cmd_q_drop      = s_cmd_q_drop;
+    out->sub_ok          = s_sub_ok_count;
+}
+
+bool tlm_mqtt_cmd_poll(tlm_mqtt_cmd_t *out)
+{
+    return (out != NULL) && (s_cmd_q != NULL) && (xQueueReceive(s_cmd_q, out, 0) == pdTRUE);
 }
