@@ -135,7 +135,8 @@ End the alert early:
 | `duration_ms` | alert | no | integer 100–10000 | default 3000 |
 | `source_node` | alert | no | string (`node_id` pattern, not `all`) | set when the dashboard relays another node's alert |
 
-Unknown fields are rejected by the schema.
+Unknown fields are rejected by the schema, which is strict for what the dashboard sends. Nodes are
+deliberately tolerant on receive: they ignore unknown extra keys and act on the fields they know.
 
 Node behaviour:
 - On a valid `alert`, drive the actuator pattern of that severity for `duration_ms` (capped at 10 s).
