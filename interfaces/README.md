@@ -48,4 +48,4 @@ The mapping is static configuration:
 Tracked in [`../docs/archive/layers/STATUS.md`](../docs/archive/layers/STATUS.md):
 
 - Time base of `ts_ms` / `timestamp_ms` → OPEN-007
-- `cmd` payloads → OPEN-010
+- `cmd` payloads → OPEN-010, closed by DEC-013 (see `mqtt-topics.md`)

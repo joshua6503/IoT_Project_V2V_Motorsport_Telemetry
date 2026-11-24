@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "urn:v2v-motorsport-telemetry:payload",
   "title": "V2V Motorsport Telemetry MQTT payloads",
-  "description": "Payloads published on v2v/{node_id}/telemetry, /alert and /status. See interfaces/mqtt-topics.md. Telemetry: only node_id, ts_ms and seq are required; every sensor field is optional.",
+  "description": "Payloads published on v2v/{node_id}/telemetry, /alert and /status, and commands sent to v2v/{node_id}/cmd or v2v/all/cmd. See interfaces/mqtt-topics.md. Telemetry: only node_id, ts_ms and seq are required; every sensor field is optional.",
   "oneOf": [
     {
       "$ref": "#/$defs/telemetry"
@@ -12,6 +12,9 @@
     },
     {
       "$ref": "#/$defs/status"
+    },
+    {
+      "$ref": "#/$defs/cmd"
     }
   ],
   "$defs": {
@@ -171,6 +174,91 @@
           ]
         }
       }
+    },
+    "cmd_alert": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cmd",
+        "seq",
+        "origin",
+        "alert_type",
+        "severity"
+      ],
+      "properties": {
+        "cmd": {
+          "const": "alert"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295,
+          "description": "Sender command counter (uint32). Nodes dedupe by (origin, seq)."
+        },
+        "origin": {
+          "$ref": "#/$defs/node_id",
+          "description": "Who sent the command; \"dashboard\" today."
+        },
+        "alert_type": {
+          "$ref": "#/$defs/alert_type"
+        },
+        "severity": {
+          "$ref": "#/$defs/severity"
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 10000,
+          "default": 3000,
+          "description": "How long the node drives the actuator pattern; 3000 when absent."
+        },
+        "source_node": {
+          "allOf": [
+            {
+              "$ref": "#/$defs/node_id"
+            },
+            {
+              "not": {
+                "const": "all"
+              }
+            }
+          ],
+          "description": "Set when the dashboard relays another node's alert (DEC-014)."
+        }
+      }
+    },
+    "cmd_clear": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "cmd",
+        "seq",
+        "origin"
+      ],
+      "properties": {
+        "cmd": {
+          "const": "clear"
+        },
+        "seq": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4294967295
+        },
+        "origin": {
+          "$ref": "#/$defs/node_id"
+        }
+      }
+    },
+    "cmd": {
+      "description": "Command to a node: v2v/{node_id}/cmd, or v2v/all/cmd for every node (\"all\" is a reserved node_id).",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/cmd_alert"
+        },
+        {
+          "$ref": "#/$defs/cmd_clear"
+        }
+      ]
     }
   }
 }

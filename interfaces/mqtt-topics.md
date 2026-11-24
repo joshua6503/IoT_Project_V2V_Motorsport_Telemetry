@@ -11,9 +11,12 @@ v2v/
     ├── alert       node → broker   mirror of V2V alerts (dashboard/history)
     ├── status      node → broker   online/offline (retained, LWT)
     └── cmd         broker → node   commands to the node
+v2v/all/cmd         broker → every node   same commands, one message for all nodes
 ```
 
 `{node_id}` matches `^[a-z0-9-]{1,32}$` (e.g. `rw612-a`, `esp32-b`, `sim-01`).
+**`all` is a reserved `node_id`**: no node may use it. Every node subscribes to its own
+`v2v/{node_id}/cmd` and to `v2v/all/cmd`.
 
 > The **safety path is BLE**, not MQTT. `alert` over MQTT is a copy for the
 > dashboard and the history; no node may depend on it to trigger an actuator.
@@ -25,7 +28,8 @@ v2v/
 | `v2v/{node_id}/telemetry` | node → broker | 0 | no | ≥ 5 Hz (target, to validate) | `#/$defs/telemetry` |
 | `v2v/{node_id}/alert` | node → broker | 1 | no | on event | `#/$defs/alert` |
 | `v2v/{node_id}/status` | node → broker | 1 | **yes** | on connect / LWT | `#/$defs/status` |
-| `v2v/{node_id}/cmd` | broker → node | 1 | no | on demand | TBD |
+| `v2v/{node_id}/cmd` | broker → node | 1 | no | on demand | `#/$defs/cmd` |
+| `v2v/all/cmd` | broker → every node | 1 | no | on demand | `#/$defs/cmd` |
 
 Rationale:
 - **telemetry QoS 0**: high rate; a lost sample is superseded by the next one.
@@ -84,10 +88,62 @@ Published retained on connect as `online`; registered as the LWT with `offline`.
 { "node_id": "rw612-a", "state": "online" }
 ```
 
-### `v2v/rw612-a/cmd`
+### `v2v/rw612-a/cmd` and `v2v/all/cmd`
 
-Command set is **TBD** (not yet in the schema). Proposed shape:
+Frozen by DEC-013 (closes OPEN-010). QoS 1, not retained. Two commands.
+
+Drive an alert on the node's actuator:
 
 ```json
-{ "cmd": "actuator_test", "args": { "actuator": "buzzer", "duration_ms": 200 } }
+{
+  "cmd": "alert",
+  "seq": 1732371000,
+  "origin": "dashboard",
+  "alert_type": "manual",
+  "severity": "warning",
+  "duration_ms": 3000
+}
 ```
+
+Same command relayed by the dashboard for another node's alert (DEC-014):
+
+```json
+{
+  "cmd": "alert",
+  "seq": 1732371001,
+  "origin": "dashboard",
+  "alert_type": "hard_brake",
+  "severity": "critical",
+  "duration_ms": 3000,
+  "source_node": "rw612-a"
+}
+```
+
+End the alert early:
+
+```json
+{ "cmd": "clear", "seq": 1732371002, "origin": "dashboard" }
+```
+
+| Field | Cmd | Required | Type | Notes |
+|---|---|---|---|---|
+| `cmd` | both | yes | `"alert"` or `"clear"` | |
+| `seq` | both | yes | uint32 | sender counter; the sender starts it at a value unlikely to repeat after a restart |
+| `origin` | both | yes | string (`node_id` pattern) | who sent it; `"dashboard"` today |
+| `alert_type` | alert | yes | `manual`, `hard_brake`, `obstacle`, `overtemp` | same enum as the alert payload |
+| `severity` | alert | yes | `info`, `warning`, `critical` | same enum as the alert payload |
+| `duration_ms` | alert | no | integer 100–10000 | default 3000 |
+| `source_node` | alert | no | string (`node_id` pattern, not `all`) | set when the dashboard relays another node's alert |
+
+Unknown fields are rejected by the schema.
+
+Node behaviour:
+- On a valid `alert`, drive the actuator pattern of that severity for `duration_ms` (capped at 10 s).
+- A higher-severity local alert wins over the command.
+- `clear` ends the commanded alert early.
+- An unknown `cmd`, invalid JSON or an out-of-range field is **ignored and logged**.
+- Dedupe by `(origin, seq)`: a repeated pair is ignored.
+- A received command **never makes the node publish an alert** (no loops).
+
+> This is remote IoT actuation through the broker, not the safety path. Direct V2V stays on BLE
+> (F5), and no node may depend on a command to protect the vehicle.

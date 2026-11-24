@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[2]
 SCHEMA_PATH = ROOT / "interfaces" / "payload.schema.json"
 
 sys.path.insert(0, str(ROOT / "tools" / "node-simulator"))
+sys.path.insert(0, str(ROOT / "dashboard" / "python"))
 
 
 @pytest.fixture(scope="session")
