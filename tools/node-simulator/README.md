@@ -29,3 +29,9 @@ python tools/node-simulator/simulator.py                     # asks the password
 
 Each node has its own connection, LWT (`offline`, retained) and retained `online` on connect.
 Distance is `null` (and `sensor_ok` bit0 cleared) ~5 % of samples.
+
+Commands (DEC-013): each node also subscribes to `v2v/{node_id}/cmd` and `v2v/all/cmd` and prints one
+log line per command (`would actuate`, `would stop actuator`, or `ignored: <reason>`). It validates
+like `#/$defs/cmd`, dedupes by `(origin, seq)`, does not actuate and never publishes an alert in
+response. To test beside real boards, use other ids (`--nodes sim-01,sim-02`) so the real retained
+status is not overwritten.

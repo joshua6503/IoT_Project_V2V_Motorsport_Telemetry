@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 """Fake V2V nodes: publish telemetry, status (with LWT) and occasional alerts over MQTT.
+Also subscribe to v2v/{node_id}/cmd and v2v/all/cmd and log each command (no actuation).
 
 Topics and payloads follow interfaces/mqtt-topics.md and
 interfaces/payload.schema.json. Values are random but schema-valid.
@@ -13,6 +14,7 @@ import getpass
 import json
 import os
 import random
+import re
 import sys
 import time
 
@@ -64,6 +66,78 @@ def make_status(node_id: str, online: bool) -> dict:
     return {"node_id": node_id, "state": "online" if online else "offline"}
 
 
+NODE_ID_RE = re.compile(r"^[a-z0-9-]{1,32}$")
+DEFAULT_DURATION_MS = 3000
+
+
+def _is_uint(value, maximum: int) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= maximum
+
+
+def _is_node_id(value) -> bool:
+    return isinstance(value, str) and NODE_ID_RE.match(value) is not None
+
+
+def parse_cmd(payload: bytes) -> tuple[dict | None, str]:
+    """Validate a cmd payload by hand, mirroring #/$defs/cmd. Returns (cmd, "") or (None, reason)."""
+    try:
+        msg = json.loads(payload.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        return None, "invalid JSON"
+    if not isinstance(msg, dict):
+        return None, "payload is not an object"
+    kind = msg.get("cmd")
+    if kind == "alert":
+        allowed = {"cmd", "seq", "origin", "alert_type", "severity", "duration_ms", "source_node"}
+        required = {"cmd", "seq", "origin", "alert_type", "severity"}
+    elif kind == "clear":
+        allowed = required = {"cmd", "seq", "origin"}
+    else:
+        return None, f"unknown cmd {kind!r}"
+    missing = required - msg.keys()
+    if missing:
+        return None, f"missing field(s): {', '.join(sorted(missing))}"
+    extra = msg.keys() - allowed
+    if extra:
+        return None, f"unknown field(s): {', '.join(sorted(extra))}"
+    if not _is_uint(msg["seq"], UINT32_MAX):
+        return None, "seq out of range"
+    if not _is_node_id(msg["origin"]):
+        return None, "origin is not a valid id"
+    if kind == "alert":
+        if msg["alert_type"] not in ALERT_TYPES:
+            return None, "unknown alert_type"
+        if msg["severity"] not in SEVERITIES:
+            return None, "unknown severity"
+        if "duration_ms" in msg and not (_is_uint(msg["duration_ms"], 10000) and msg["duration_ms"] >= 100):
+            return None, "duration_ms out of range"
+        if "source_node" in msg and not (_is_node_id(msg["source_node"]) and msg["source_node"] != "all"):
+            return None, "source_node is not a valid id"
+    return msg, ""
+
+
+def describe_cmd(node: str, cmd: dict) -> str:
+    """One log line for a valid command (the simulator does not actuate)."""
+    if cmd["cmd"] == "clear":
+        return f"[{node}] cmd clear from {cmd['origin']} -> would stop actuator"
+    duration = min(cmd.get("duration_ms", DEFAULT_DURATION_MS), 10000)
+    relay = f" (relay of {cmd['source_node']})" if "source_node" in cmd else ""
+    return (f"[{node}] cmd alert {cmd['alert_type']} {cmd['severity']} {duration} ms "
+            f"from {cmd['origin']}{relay} -> would actuate")
+
+
+def handle_cmd(node: str, payload: bytes, seen: set[tuple[str, int]]) -> str:
+    """Return the log line for a received command. Never publishes anything (no alert loops)."""
+    cmd, reason = parse_cmd(payload)
+    if cmd is None:
+        return f"[{node}] cmd ignored: {reason}"
+    key = (cmd["origin"], cmd["seq"])
+    if key in seen:
+        return f"[{node}] cmd ignored: duplicate (origin={key[0]}, seq={key[1]})"
+    seen.add(key)
+    return describe_cmd(node, cmd)
+
+
 def parse_broker(value: str) -> tuple[str, int]:
     host, _, port = value.partition(":")
     return host or "localhost", int(port) if port else 1883
@@ -100,6 +174,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 
 def make_client(node: str, host: str, port: int, args: argparse.Namespace) -> mqtt.Client:
+    seen: set[tuple[str, int]] = set()  # (origin, seq) already handled
     client = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2, client_id=f"{node}-simulator")
     if args.username:
         client.username_pw_set(args.username, args.password)
@@ -109,10 +184,10 @@ def make_client(node: str, host: str, port: int, args: argparse.Namespace) -> mq
         print(f"[{node}] connected to {host}:{port} ({reason_code})")
         if not reason_code.is_failure:
             c.publish(topic(node, "status"), json.dumps(make_status(node, True)), qos=1, retain=True)
-            c.subscribe(topic(node, "cmd"), qos=1)
+            c.subscribe([(topic(node, "cmd"), 1), (topic("all", "cmd"), 1)])
 
     def on_message(_c, _userdata, msg):
-        print(f"[{node}] cmd on {msg.topic}: {msg.payload!r} (commands are TBD, ignored)")
+        print(handle_cmd(node, msg.payload, seen))
 
     client.on_connect = on_connect
     client.on_message = on_message
