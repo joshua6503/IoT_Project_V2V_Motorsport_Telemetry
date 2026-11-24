@@ -253,6 +253,9 @@ One line every 200 ms (UART, 115200 8N1): `t dist temp brake brake_f brake_raw t
 dht_ok dht_cks dht_to dht_nr slot_late_max resyncs wf wf_dc mq mq_dc mq_rc pub_ok pub_err al_drop heap rssi`
 (`wf`/`mq` = link/session up now, `slot_late_max` = worst lateness of the 50 ms pot slot in ms, `heap` = free FreeRTOS heap in bytes,
 `rssi` = dBm from the Wi-Fi driver, then `ip= up= link=` of the lwIP default netif). After the network starts, one `tasks(name:prio)` line lists every task's priority.
+Since DEC-013 the line also carries `heap_min` (true minimum-ever free heap, `xPortGetMinimumEverFreeHeapSize`, `heap_4.c:419`) after `heap`, and
+`rem= sub= cmd_rx= cmd_ok= cmd_bad= cmd_dup= cmd_qd=` before `ip=` (see [Dashboard commands](#mp2-dashboard-commands-dec-013)).
+With `APP_ADC_DIAG 1` (default 0) it adds `adc_vref= adc_vbat= adc_vss=`, raw conversions of the ADC's own internal sources.
 `APP_DIAG_NO_SENSE 1` (default 0) does not create the sense task, to measure the Wi-Fi link without the sensor load.
 
 ### F3 measurements (2026-11-23, iPhone hotspot, broker on the laptop)
@@ -312,6 +315,78 @@ persistence false
 Subscribe: `mosquitto_sub -p 1885 -u tester -P <pw> -t "v2v/rw612-a/#" -v`. The board must reach the laptop's IP on the
 same Wi-Fi network. The `mosquitto.exe` inbound firewall rules created by the installer allow any port; if the board
 still cannot connect, a rule for the port is needed (see the F3 report).
+
+## MP2: dashboard commands (DEC-013)
+
+The node subscribes to `v2v/rw612-a/cmd` and `v2v/all/cmd` (QoS 1, not retained) and shows an alert that the dashboard
+asks for, on top of the local logic. Payloads (flat JSON objects, contract in `interfaces/`):
+
+```json
+{"cmd":"alert","seq":7,"origin":"dashboard","alert_type":"manual|hard_brake|obstacle|overtemp",
+ "severity":"info|warning|critical","duration_ms":3000,"source_node":"esp32-b"}
+{"cmd":"clear","seq":8,"origin":"dashboard"}
+```
+
+| Rule | Behaviour |
+|---|---|
+| valid `alert` | drives the DEC-004 pattern of its severity for `duration_ms` (100..10000, default 3000, hard cap 10 s) |
+| local vs remote | the remote alert is shown only when it is strictly more severe than the local one (or there is none); `sensor_fault` is always the local flag. `info` has no pattern of its own (green), so it never changes the outputs |
+| `clear` | ends the remote alert early |
+| invalid input | invalid JSON, unknown `cmd`, missing or out-of-range field, duplicate known key, payload over 256 bytes: ignored and logged (`cmd: ignored ERR_...`), never clamped |
+| duplicates | (`origin`, `seq`) pairs are remembered (last 16); a repeat is ignored (`cmd: duplicate ...`), also across the two topics and for `clear` |
+| publishing | a received command never publishes an alert (the local `alert` mirror is unchanged) |
+| ids | `origin` and `source_node` follow `^[a-z0-9-]{1,32}$` (no underscore), like the ESP32 node |
+| tolerance | unknown extra keys are **ignored** on receive (the ESP32 node does the same): nodes are tolerant on receive while the schema stays strict for what the dashboard sends |
+
+Code: pure parser, de-duplication and merge in `firmware/common/{include,src}/alert_cmd.{h,c}` (38 host tests,
+`tests/unit/test_alert_cmd.c`, no SDK); MQTT intake in `services/tlm_mqtt.c`; actuation in `services/alert_actuation.c`.
+The `tlm` task logs and de-duplicates, the `sense` task applies the command through a 4-deep queue (`xQueueReceive`, timeout 0),
+so the sense task never blocks and `board_time_*` stays in `sense` only.
+
+SDK facts (paths relative to `C:\nxp\SDK_RW612`):
+
+- Callbacks: `mqtt_set_inpub_callback()` (`middleware/lwip/src/include/lwip/apps/mqtt.h:188`) with a publish callback (once per
+  message, `:163`) and a data callback (per chunk, `:151`, last chunk flagged `MQTT_DATA_FLAG_LAST`, `:136`). lwIP calls them from
+  `mqtt_message_received` (`middleware/lwip/src/apps/mqtt/mqtt.c:762-775`) and sends the PUBACK itself (`:777-782`).
+- The receive buffer is 128 bytes (`MQTT_VAR_HEADER_BUFFER_LEN`, `.../mqtt_opts.h:64`), so a command arrives in chunks: the data
+  callback appends them into a 256-byte buffer and parses on the last one.
+- Resubscribe: `mqtt_client_connect()` keeps the incoming callbacks (`mqtt.c:1315-1322`, set once in `tlm_mqtt_start`), but the broker
+  forgets the subscriptions, so `mqtt_subscribe()` (`mqtt.h:195`) runs from the connection callback on **every** `MQTT_CONNECT_ACCEPTED`
+  (pattern of `wifi_examples/wifi_mqtt/mqtt_freertos.c:150-170,188`) and is retried every 3 s until both SUBACKs arrive.
+  In flight after a connect: the retained `online` publish plus two SUBSCRIBEs = 3 of `MQTT_REQ_MAX_IN_FLIGHT` 4 (`mqtt_opts.h:71`).
+
+Measured on the bench 2026-11-24 (Familia_CM, Pi 192.168.0.239, 5 min, 4 commands sent mid-run): **telemetry 5.00 msg/s, 1556
+messages over 311 s, `seq` 0..1555 with no gap, `pub_err=0`, no Wi-Fi or MQTT drops**; commands applied
+(`rem=CRITICAL` 4 s, `WARNING` 6 s, `CRITICAL` 3 s), duplicate dropped, local alert stayed `NONE`, no alert published.
+Image growth: text +7688, bss +1836 bytes versus the F3 build. Heap: about 0.6-1 KB of the FreeRTOS heap goes to the two queues
+(estimate). Free heap after the join 9.1-9.7 KB; the true minimum (`heap_min`) over 8 boots was 7.7-7.9 KB on five and
+5.0-5.3 KB on three: it depends on Wi-Fi join timing (assumption), and F5 (BLE) has to plan for the low value.
+
+## Brake range investigation (2026-11-24)
+
+Symptom: the dashboard brake topped out at about 72.2 % (raw about 21 960 with `APP_POT_BRAKE_RAW_MIN 2850 / MAX 29320`), so
+`HARD_BRAKE` never fired. **The root cause was not reproduced**; the calibration was **not changed**.
+
+Ruled out (evidence in the session report):
+
+- ADC set-up: MP1 and MP2 use the same `board_io.c` (unchanged since 2026-10-14) and the same `fsl_adc.c` (identical SHA-256, equal
+  to the SDK); the GAU clock/reset/power sequence equals `driver_examples/adc/software_trigger/hardware_init.c:22-27`. MP2 differs from MP1
+  only in the boot clock tree (`BOARD_BootClockLPR()` instead of `BOARD_BootClockRUN()`, `wifi_mqtt/source/hardware_init.c:19-21`; LPR keeps
+  the 256 MHz T3 PLL that feeds the GAU, `clock_config.c:250`, and de-initialises AVPLL/TDDR, `:271-274`) and in `BOARD_InitSleepPinConfig()`
+  (sleep-only pad levels, `board.c:187-206`).
+- FIR and clamp: the filter has DC gain 1 (`fir_brake_coeffs.h`, sum of taps = 1) and `brake_f` equals `brake` at rest; the 72.2 % was a raw
+  level, not a filtered one.
+- Boot-time ADC state: 5 consecutive resets with the pot at maximum gave a boot scan of 29 258-29 294 and 29 293-29 346 after the join.
+- Drift with uptime: 15 minutes of uptime at rest, then pot at maximum: `raw` 29 362-29 409, internal `vbat_s` constant at 30 104 and `vssa` 0-4.
+- Current result: with this firmware the pot reaches raw about 29 380 (brake 100 %) and `HARD_BRAKE`/`critical` fires on every fast press
+  (7 of 7 on the final image, each published on `v2v/rw612-a/alert`).
+
+Observed once and unexplained: raw exactly 32767 (ADC full scale) for about 10 s with the pot being handled at 10.7 min of uptime; a
+rest reading of 2243 on the previous image versus 2990 afterwards. Both point to the analog input (pot contact or wiring, or the hand on
+the pot) rather than to the firmware; with no multimeter at hand the divider voltage (expected 1.00 V at J7-3 with the pot at maximum,
+3.3 V at its top) was not measured. If the symptom comes back: set `APP_ADC_DIAG 1` in `app/app_config_mp2.h` and compare `brake_raw` with
+`adc_vref`, `adc_vbat`, `adc_vss` (an ADC scale change moves all of them; an input-voltage problem moves only `brake_raw`), then measure J7-3.
+(`kADC_TEMPP` is compiled out for the RW612, `fsl_adc.h:322-324`.)
 
 ## Rules
 
