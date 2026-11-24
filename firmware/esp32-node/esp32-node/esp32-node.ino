@@ -205,17 +205,38 @@ void loop()
         publish_telemetry(now);
     }
 
-    alert_pattern_t p = alert_pattern_for(&s_alert, now);
+    /* Remote commands (DEC-013): actuate only, never publish an alert (no loops). */
+    net_cmd_t cmd;
+    while (net_cmd_poll(&cmd))
+    {
+        if (cmd.kind == NET_CMD_ALERT)
+        {
+            alert_t ra = {cmd.alert_type, cmd.severity, false};
+            io_remote_alert(&ra, cmd.duration_ms, now);
+            Serial.printf("[cmd] applied alert %s/%s %lu ms origin=%s seq=%lu source=%s\n",
+                          alert_type_str(cmd.alert_type), severity_str(cmd.severity),
+                          (unsigned long)cmd.duration_ms, cmd.origin, (unsigned long)cmd.seq,
+                          (cmd.source_node[0] != 0) ? cmd.source_node : "-");
+        }
+        else
+        {
+            io_remote_clear(now);
+            Serial.printf("[cmd] applied clear origin=%s seq=%lu\n", cmd.origin, (unsigned long)cmd.seq);
+        }
+    }
+
+    alert_t         shown = io_effective_alert(&s_alert, now);
+    alert_pattern_t p     = alert_pattern_for(&shown, now);
     io_apply(&p, now);
 
     if (due(now, &s_next_status_ms, STATUS_LOG_MS))
     {
         char diag[128];
         net_diag_str(diag, sizeof(diag));
-        Serial.printf("[st] wifi=%d mqtt=%d brake=%.1f%% (%lu mV) sensor_ok=%u alert=%s tlm sent=%lu drop=%lu boots=%lu rst=%s prev=%s wd=\"%s\" %s\n",
+        Serial.printf("[st] wifi=%d mqtt=%d brake=%.1f%% (%lu mV) sensor_ok=%u alert=%s remote=%d tlm sent=%lu drop=%lu boots=%lu rst=%s prev=%s wd=\"%s\" %s\n",
                       (int)net_wifi_connected(), (int)net_mqtt_connected(), (double)s_brake_pct,
                       (unsigned long)s_brake_mv, (unsigned)s_sensor_ok, alert_type_str(s_alert.type),
-                      (unsigned long)s_tlm_sent, (unsigned long)s_tlm_drop, (unsigned long)s_boot_count,
+                      (int)io_remote_active(now), (unsigned long)s_tlm_sent, (unsigned long)s_tlm_drop, (unsigned long)s_boot_count,
                       s_reset_reason, s_prev_rst, s_wd_reason, diag);
     }
 }

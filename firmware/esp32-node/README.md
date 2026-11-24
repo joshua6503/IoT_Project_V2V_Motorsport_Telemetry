@@ -66,6 +66,42 @@ bench on 2026-11-23 and is no longer an ASSUMPTION.
   (alert `seq` is uint16). MQTT is informative: with the link down, messages are dropped and logged, not queued.
 - Serial 115200: `[wifi]`, `[mqtt]`, `[btn]`, `[alert]` events and a 1 Hz `[st]` line.
 
+## Remote commands (DEC-013)
+
+The node subscribes (QoS 1, again on every MQTT (re)connect) to `v2v/esp32-b/cmd` and `v2v/all/cmd`.
+Commands are not retained. A command only drives the LEDs/buzzer: it never publishes an alert (no loops).
+
+```json
+{"cmd":"alert","seq":1,"origin":"dashboard","alert_type":"manual|hard_brake|obstacle|overtemp",
+ "severity":"info|warning|critical","duration_ms":3000,"source_node":"rw612-a"}
+{"cmd":"clear","seq":2,"origin":"dashboard"}
+```
+
+- **Validation** (`node_net.cpp`, cJSON from the core): `cmd` is `alert` or `clear`; `seq` is an integer
+  0..4294967295; `origin` and `source_node` (optional, `alert` only) match the node_id pattern
+  `^[a-z0-9-]{1,32}$`; `duration_ms` is optional (default 3000) and must be an integer 100..10000. Anything
+  else (invalid JSON, unknown `cmd`, a field out of range, a message over 255 bytes or fragmented) is ignored
+  and logged, and the whole command is dropped.
+- **Dedupe:** the last 8 `(origin, seq)` pairs are remembered, so the same command arriving on both
+  topics, or re-sent, is applied once.
+- **Actuation** (`node_io.cpp`): `io_effective_alert()` returns the remote alert while it is active and
+  strictly more severe than the local alert (or the local one is NONE), so a local alert of equal or higher
+  severity wins. The result goes through the same `alert_pattern_for()` as local alerts (DEC-004). `clear`
+  ends it early; otherwise it expires after `duration_ms`. `info` has no pattern in DEC-004, so the LEDs
+  stay green.
+- **Threads:** parsing runs in the esp-mqtt task and hands the command to `loop()` through a 4-deep queue.
+  The telemetry task, its queue and the watchdog are not touched.
+- **Serial log**, one `[cmd]` line per event: `subscribe`, `subscribed`, `rx <topic> <payload>`, then
+  `queued` / `ignored: <reason>`, `applied ...`, `remote alert expired`. The 1 Hz `[st]` line has `remote=0|1`.
+
+Bench (2026-11-23, Pi 192.168.0.239, 8.5 dBm): warning, critical, clear, broadcast on `v2v/all/cmd`, duplicate
+seq, invalid JSON, unknown `cmd`, `duration_ms` 20000 and an uppercase `origin` all behaved as above. 5 min
+with a command every 30 s: 1530 telemetry messages on the broker, 0 `seq` gaps, 300 per full minute (5 Hz),
+0 `offline`, no `[wd]` restart, no alert published by the node.
+
+Test with `mosquitto_pub -q 1 -t v2v/esp32-b/cmd -f msg.json`. On Windows PowerShell 5.1 pass the JSON
+with `-f <file>`: passing it with `-m` strips the double quotes before `mosquitto_pub` sees them.
+
 ## MQTT library
 
 **ESP-IDF `esp-mqtt` (`mqtt_client.h`), bundled with the Arduino core — no library to install.**

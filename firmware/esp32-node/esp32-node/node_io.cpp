@@ -118,6 +118,49 @@ void io_manual_feedback(uint32_t now_ms)
     s_feedback_active   = true;
 }
 
+/* Remote alert state (DEC-013), loop() context only. */
+#define REMOTE_MAX_MS 10000u
+static alert_t  s_remote        = {V2V_ALERT_NONE, V2V_SEVERITY_INFO, false};
+static bool     s_remote_active = false;
+static uint32_t s_remote_start  = 0;
+static uint32_t s_remote_len    = 0;
+
+void io_remote_alert(const alert_t *a, uint32_t duration_ms, uint32_t now_ms)
+{
+    s_remote        = *a;
+    s_remote_len    = (duration_ms > REMOTE_MAX_MS) ? REMOTE_MAX_MS : duration_ms;
+    s_remote_start  = now_ms;
+    s_remote_active = true;
+}
+
+void io_remote_clear(uint32_t now_ms)
+{
+    (void)now_ms;
+    s_remote_active = false;
+}
+
+bool io_remote_active(uint32_t now_ms)
+{
+    if (s_remote_active && (uint32_t)(now_ms - s_remote_start) >= s_remote_len)
+    {
+        s_remote_active = false;
+        Serial.println("[cmd] remote alert expired");
+    }
+    return s_remote_active;
+}
+
+alert_t io_effective_alert(const alert_t *local, uint32_t now_ms)
+{
+    if (io_remote_active(now_ms) &&
+        ((local->type == V2V_ALERT_NONE) || (s_remote.severity > local->severity)))
+    {
+        alert_t out       = s_remote;
+        out.sensor_fault  = local->sensor_fault;
+        return out;
+    }
+    return *local;
+}
+
 void io_apply(const alert_pattern_t *p, uint32_t now_ms)
 {
     bool yellow = p->led_yellow;

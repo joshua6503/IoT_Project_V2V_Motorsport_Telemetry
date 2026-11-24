@@ -12,6 +12,32 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "src/v2v_protocol.h"
+
+/** Longest node_id / origin / source_node string, pattern ^[a-z0-9-]{1,32}$ (+ NUL). */
+#define NET_ID_MAX 33u
+
+/** Remote command received on v2v/<node>/cmd or v2v/all/cmd (DEC-013), already validated. */
+typedef enum
+{
+    NET_CMD_ALERT = 1,
+    NET_CMD_CLEAR = 2
+} net_cmd_kind_t;
+
+typedef struct
+{
+    net_cmd_kind_t   kind;
+    uint32_t         seq;
+    char             origin[NET_ID_MAX];
+    v2v_alert_type_t alert_type;  /**< NET_CMD_ALERT only */
+    v2v_severity_t   severity;    /**< NET_CMD_ALERT only */
+    uint32_t         duration_ms; /**< NET_CMD_ALERT only, 100..10000 */
+    char             source_node[NET_ID_MAX]; /**< "" when absent */
+} net_cmd_t;
+
+/** Pop the next validated, de-duplicated command. false when none is pending. Never blocks. */
+bool net_cmd_poll(net_cmd_t *out);
+
 /** Start Wi-Fi (auto reconnect) and create the MQTT client. Call once from setup(). */
 void net_init(void);
 

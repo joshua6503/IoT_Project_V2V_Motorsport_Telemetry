@@ -10,10 +10,13 @@
 #include <WiFi.h>
 #include <esp_wifi.h>
 #include <mqtt_client.h>
+#include <cJSON.h>
 
 #include "config.h"
 #include "node_net.h"
 
+#define TOPIC_CMD       "v2v/" NODE_ID_STR "/cmd"
+#define TOPIC_CMD_ALL   "v2v/all/cmd"
 #define TOPIC_TELEMETRY "v2v/" NODE_ID_STR "/telemetry"
 #define TOPIC_ALERT     "v2v/" NODE_ID_STR "/alert"
 #define TOPIC_STATUS    "v2v/" NODE_ID_STR "/status"
@@ -46,6 +49,24 @@ static volatile uint32_t s_tlm_progress_ms = 0;
 static volatile uint32_t s_last_pub_ok_ms  = 0; /* last esp_mqtt_client_publish() that returned >= 0 */
 
 static esp_mqtt_client_handle_t s_client = NULL;
+
+/* Remote commands (DEC-013). Parsed in the esp-mqtt task, consumed by loop() through a queue,
+ * so the 5 Hz telemetry path and its watchdog are not involved. */
+#define CMD_QUEUE_DEPTH 4
+#define CMD_MAX_BYTES   255u
+#define CMD_DEDUPE_N    8
+#define CMD_DEFAULT_MS  3000u
+#define CMD_MIN_MS      100u
+#define CMD_MAX_MS      10000u
+static QueueHandle_t s_cmd_queue = NULL;
+typedef struct
+{
+    char     origin[NET_ID_MAX];
+    uint32_t seq;
+    bool     used;
+} cmd_seen_t;
+static cmd_seen_t s_seen[CMD_DEDUPE_N]; /* only touched from the esp-mqtt task */
+static int        s_seen_next = 0;
 
 /* Written by the Wi-Fi / MQTT tasks, read by loop(). */
 static volatile bool     s_wifi_up       = false;
@@ -102,6 +123,181 @@ static void on_wifi_event(arduino_event_id_t event, arduino_event_info_t info)
     }
 }
 
+/** node_id pattern ^[a-z0-9-]{1,32}$ (interfaces/payload.schema.json). */
+static bool id_valid(const char *s)
+{
+    size_t n = (s != NULL) ? strlen(s) : 0;
+    if (n < 1 || n > 32)
+    {
+        return false;
+    }
+    for (size_t i = 0; i < n; i++)
+    {
+        char c = s[i];
+        if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-'))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+/** Integer JSON number in [lo, hi]; false if missing, not a number, fractional or out of range. */
+static bool json_uint(const cJSON *o, const char *key, double lo, double hi, uint32_t *out)
+{
+    const cJSON *it = cJSON_GetObjectItemCaseSensitive(o, key);
+    if (!cJSON_IsNumber(it))
+    {
+        return false;
+    }
+    double v = it->valuedouble;
+    if (v < lo || v > hi || v != (double)(uint64_t)v)
+    {
+        return false;
+    }
+    *out = (uint32_t)v;
+    return true;
+}
+
+static bool seen_before(const char *origin, uint32_t seq)
+{
+    for (int i = 0; i < CMD_DEDUPE_N; i++)
+    {
+        if (s_seen[i].used && s_seen[i].seq == seq && strcmp(s_seen[i].origin, origin) == 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static void seen_add(const char *origin, uint32_t seq)
+{
+    strlcpy(s_seen[s_seen_next].origin, origin, NET_ID_MAX);
+    s_seen[s_seen_next].seq  = seq;
+    s_seen[s_seen_next].used = true;
+    s_seen_next              = (s_seen_next + 1) % CMD_DEDUPE_N;
+}
+
+/** Validate one command payload and queue it. Logs exactly one [cmd] outcome line. */
+static void handle_cmd(const char *topic, const char *payload)
+{
+    Serial.printf("[cmd] rx %s %s\n", topic, payload);
+    cJSON *root = cJSON_Parse(payload);
+    if (root == NULL || !cJSON_IsObject(root))
+    {
+        Serial.println("[cmd] ignored: invalid JSON");
+        cJSON_Delete(root);
+        return;
+    }
+
+    net_cmd_t    c = {};
+    const char  *reason = NULL;
+    const cJSON *j;
+
+    j = cJSON_GetObjectItemCaseSensitive(root, "cmd");
+    const char *cmd = cJSON_IsString(j) ? j->valuestring : NULL;
+    if (cmd == NULL)
+    {
+        reason = "missing cmd";
+    }
+    else if (strcmp(cmd, "alert") == 0)
+    {
+        c.kind = NET_CMD_ALERT;
+    }
+    else if (strcmp(cmd, "clear") == 0)
+    {
+        c.kind = NET_CMD_CLEAR;
+    }
+    else
+    {
+        reason = "unknown cmd";
+    }
+
+    if (reason == NULL && !json_uint(root, "seq", 0, 4294967295.0, &c.seq))
+    {
+        reason = "bad seq";
+    }
+    if (reason == NULL)
+    {
+        j = cJSON_GetObjectItemCaseSensitive(root, "origin");
+        if (!cJSON_IsString(j) || !id_valid(j->valuestring))
+        {
+            reason = "bad origin";
+        }
+        else
+        {
+            strlcpy(c.origin, j->valuestring, NET_ID_MAX);
+        }
+    }
+    if (reason == NULL && c.kind == NET_CMD_ALERT)
+    {
+        j = cJSON_GetObjectItemCaseSensitive(root, "alert_type");
+        const char *t = cJSON_IsString(j) ? j->valuestring : "";
+        if (strcmp(t, "manual") == 0)          c.alert_type = V2V_ALERT_MANUAL;
+        else if (strcmp(t, "hard_brake") == 0) c.alert_type = V2V_ALERT_HARD_BRAKE;
+        else if (strcmp(t, "obstacle") == 0)   c.alert_type = V2V_ALERT_OBSTACLE;
+        else if (strcmp(t, "overtemp") == 0)   c.alert_type = V2V_ALERT_OVERTEMP;
+        else                                   reason = "bad alert_type";
+
+        if (reason == NULL)
+        {
+            j = cJSON_GetObjectItemCaseSensitive(root, "severity");
+            const char *s = cJSON_IsString(j) ? j->valuestring : "";
+            if (strcmp(s, "info") == 0)          c.severity = V2V_SEVERITY_INFO;
+            else if (strcmp(s, "warning") == 0)  c.severity = V2V_SEVERITY_WARNING;
+            else if (strcmp(s, "critical") == 0) c.severity = V2V_SEVERITY_CRITICAL;
+            else                                 reason = "bad severity";
+        }
+        if (reason == NULL)
+        {
+            c.duration_ms = CMD_DEFAULT_MS;
+            if (cJSON_GetObjectItemCaseSensitive(root, "duration_ms") != NULL &&
+                !json_uint(root, "duration_ms", CMD_MIN_MS, CMD_MAX_MS, &c.duration_ms))
+            {
+                reason = "bad duration_ms";
+            }
+        }
+        if (reason == NULL)
+        {
+            j = cJSON_GetObjectItemCaseSensitive(root, "source_node");
+            if (j != NULL)
+            {
+                /* node_id pattern, or "all" (also matches the pattern) */
+                if (!cJSON_IsString(j) || !id_valid(j->valuestring))
+                {
+                    reason = "bad source_node";
+                }
+                else
+                {
+                    strlcpy(c.source_node, j->valuestring, NET_ID_MAX);
+                }
+            }
+        }
+    }
+
+    if (reason == NULL && seen_before(c.origin, c.seq))
+    {
+        reason = "duplicate (origin, seq)";
+    }
+    if (reason == NULL && (s_cmd_queue == NULL || xQueueSend(s_cmd_queue, &c, 0) != pdTRUE))
+    {
+        reason = "command queue full";
+    }
+
+    if (reason != NULL)
+    {
+        Serial.printf("[cmd] ignored: %s\n", reason);
+    }
+    else
+    {
+        seen_add(c.origin, c.seq);
+        Serial.printf("[cmd] queued %s origin=%s seq=%lu\n", (c.kind == NET_CMD_ALERT) ? "alert" : "clear",
+                      c.origin, (unsigned long)c.seq);
+    }
+    cJSON_Delete(root);
+}
+
 static void on_mqtt_event(void *arg, esp_event_base_t base, int32_t event_id, void *data)
 {
     (void)arg;
@@ -115,7 +311,33 @@ static void on_mqtt_event(void *arg, esp_event_base_t base, int32_t event_id, vo
         s_backoff_ms    = RECONNECT_MIN_MS;
         Serial.println("[mqtt] connected, publishing online");
         esp_mqtt_client_enqueue(s_client, TOPIC_STATUS, STATUS_ONLINE, 0, 1, 1, true);
+        /* Subscriptions do not survive a clean-session reconnect: redo them every time. */
+        Serial.printf("[cmd] subscribe %s msg_id=%d\n", TOPIC_CMD,
+                      esp_mqtt_client_subscribe_single(s_client, TOPIC_CMD, 1));
+        Serial.printf("[cmd] subscribe %s msg_id=%d\n", TOPIC_CMD_ALL,
+                      esp_mqtt_client_subscribe_single(s_client, TOPIC_CMD_ALL, 1));
         break;
+    case MQTT_EVENT_SUBSCRIBED:
+        Serial.printf("[cmd] subscribed msg_id=%d\n", (int)ev->msg_id);
+        break;
+    case MQTT_EVENT_DATA:
+    {
+        char topic[40];
+        char payload[CMD_MAX_BYTES + 1];
+        int  tl = (ev->topic_len < (int)sizeof(topic) - 1) ? ev->topic_len : (int)sizeof(topic) - 1;
+        if (ev->topic == NULL || ev->current_data_offset != 0 || ev->data_len != ev->total_data_len ||
+            ev->data_len < 0 || ev->data_len > (int)CMD_MAX_BYTES)
+        {
+            Serial.printf("[cmd] ignored: fragmented or oversized message (%d bytes)\n", (int)ev->total_data_len);
+            break;
+        }
+        memcpy(topic, ev->topic, tl);
+        topic[tl] = 0;
+        memcpy(payload, ev->data, ev->data_len);
+        payload[ev->data_len] = 0;
+        handle_cmd(topic, payload);
+        break;
+    }
     case MQTT_EVENT_DISCONNECTED:
         if (s_mqtt_up)
         {
@@ -234,6 +456,7 @@ void net_init(void)
 
     s_tlm_progress_ms = millis();
     s_last_pub_ok_ms  = millis();
+    s_cmd_queue       = xQueueCreate(CMD_QUEUE_DEPTH, sizeof(net_cmd_t));
     s_tlm_queue       = xQueueCreate(TLM_QUEUE_DEPTH, sizeof(tlm_item_t));
     xTaskCreate(telemetry_task, "tlm_pub", 4096, NULL, 1, NULL);
 }
@@ -320,6 +543,11 @@ void net_loop(uint32_t now_ms)
             schedule_retry();
         }
     }
+}
+
+bool net_cmd_poll(net_cmd_t *out)
+{
+    return (s_cmd_queue != NULL) && (xQueueReceive(s_cmd_queue, out, 0) == pdTRUE);
 }
 
 bool net_wifi_connected(void)
