@@ -10,6 +10,10 @@ v2v/
     ├── telemetry   node → broker   periodic sensor data
     ├── alert       node → broker   mirror of V2V alerts (dashboard/history)
     ├── status      node → broker   online/offline (retained, LWT)
+    ├── sensor/
+    │   ├── brake_pct     node → broker   one value per topic (plain text)
+    │   ├── temp_c        node → broker   one value per topic (plain text)
+    │   └── distance_cm   node → broker   one value per topic (plain text)
     └── cmd         broker → node   commands to the node
 v2v/all/cmd         broker → every node   same commands, one message for all nodes
 ```
@@ -28,6 +32,7 @@ v2v/all/cmd         broker → every node   same commands, one message for all n
 | `v2v/{node_id}/telemetry` | node → broker | 0 | no | ≥ 5 Hz (target, to validate) | `#/$defs/telemetry` |
 | `v2v/{node_id}/alert` | node → broker | 1 | no | on event | `#/$defs/alert` |
 | `v2v/{node_id}/status` | node → broker | 1 | **yes** | on connect / LWT | `#/$defs/status` |
+| `v2v/{node_id}/sensor/{brake_pct\|temp_c\|distance_cm}` | node → broker | 0 | no | 2 Hz | plain text (below) |
 | `v2v/{node_id}/cmd` | broker → node | 1 | no | on demand | `#/$defs/cmd` |
 | `v2v/all/cmd` | broker → every node | 1 | no | on demand | `#/$defs/cmd` |
 
@@ -37,6 +42,31 @@ Rationale:
   Not retained: a stale alert must not be replayed to a new subscriber.
 - **status retained + LWT**: a new dashboard subscriber immediately knows who is online.
   The broker publishes `offline` if the node disconnects uncleanly.
+
+## Per-variable sensor topics (MP2)
+
+`v2v/{node_id}/sensor/brake_pct`, `.../temp_c` and `.../distance_cm` carry **one variable each** as plain
+decimal text (not JSON), UTF-8, one decimal place, `.` as separator: `42.5`, `36.8`, `250.0`.
+The literal text `null` means a sensor fault (temperature) or no echo (distance). QoS 0, not retained,
+2 Hz (target, to validate). They are an addition: the JSON `telemetry` topic above is unchanged and
+remains the source of `seq` and `sensor_ok`.
+
+| Node | Publishes |
+|---|---|
+| `rw612-a` | `brake_pct`, `temp_c`, `distance_cm` |
+| `esp32-b` | `brake_pct` only |
+
+A consumer must tolerate a missing topic (the node simply never publishes it) and any text that is neither
+a finite number nor `null` must be ignored. The dashboard feeds its gauges and charts from these topics.
+
+## Broker ACL
+
+The broker enforces a per-user ACL (added by the gateway session; see `gateway/pi/`):
+- a node (`rw612-a`, `esp32-b`) writes only its own `v2v/{node_id}/#` topics and reads only its own
+  `v2v/{node_id}/cmd` and `v2v/all/cmd`;
+- `dashboard` reads `v2v/#` and writes only `v2v/+/cmd` (including `v2v/all/cmd`).
+
+A publish outside these rules is dropped by the broker.
 
 ## Payload examples
 
