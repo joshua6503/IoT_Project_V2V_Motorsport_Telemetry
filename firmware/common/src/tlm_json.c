@@ -195,6 +195,35 @@ int tlm_json_telemetry(char *buf, size_t n, const tlm_json_telemetry_t *t)
     return writer_end(&w);
 }
 
+int tlm_json_value1(char *buf, size_t n, bool valid, float x)
+{
+    writer_t w;
+    w.buf = buf;
+    w.n   = n;
+    w.pos = 0u;
+    w.ok  = (buf != NULL) && (n > 0u);
+    if (!w.ok)
+    {
+        return -1;
+    }
+    buf[0] = '\0';
+    if (valid && is_finite(x))
+    {
+        put_fixed1(&w, x);
+    }
+    else
+    {
+        put_str(&w, "null");
+    }
+    if (!w.ok)
+    {
+        buf[0] = '\0';
+        return -1;
+    }
+    buf[w.pos] = '\0';
+    return (int)w.pos;
+}
+
 static const char *alert_type_str(v2v_alert_type_t t)
 {
     switch (t)

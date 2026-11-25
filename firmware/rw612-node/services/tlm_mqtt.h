@@ -38,6 +38,15 @@ typedef struct
     bool wifi_power_save_off; /**< true: switch the driver's IEEE + deep-sleep power save off after each join. */
 } tlm_mqtt_config_t;
 
+/** Per-variable topics v2v/{node_id}/sensor/{brake_pct,temp_c,distance_cm} (plain text, QoS 0, not retained). */
+typedef enum
+{
+    TLM_SENSOR_BRAKE_PCT = 0,
+    TLM_SENSOR_TEMP_C,
+    TLM_SENSOR_DISTANCE_CM,
+    TLM_SENSOR_COUNT
+} tlm_mqtt_sensor_t;
+
 /** Counters for the periodic log line and the priority-fallback measurement. */
 typedef struct
 {
@@ -46,6 +55,8 @@ typedef struct
     uint32_t mqtt_reconnects;  /**< MQTT connections established after the first one. */
     uint32_t pub_ok;
     uint32_t pub_err;          /**< mqtt_publish() refused (buffer / in-flight table full) or not connected. */
+    uint32_t sens_ok;          /**< Per-sensor topic publishes accepted (already counted in pub_ok). */
+    uint32_t sens_err;         /**< Per-sensor topic publishes refused (already counted in pub_err). */
     uint32_t cmd_rx;           /**< Complete messages received on the cmd topics (valid or not). */
     uint32_t cmd_q_drop;       /**< Received commands lost because the hand-over queue was full. */
     uint32_t sub_ok;           /**< Number of the two cmd subscriptions acknowledged in this session (0..2). */
@@ -87,6 +98,9 @@ void tlm_mqtt_netif_text(char *buf, unsigned n);
 
 /** QoS 0, not retained, to v2v/{node_id}/telemetry. @p json is NUL-free and @p len bytes long. */
 bool tlm_mqtt_publish_telemetry(const char *json, uint16_t len);
+
+/** QoS 0, not retained, to v2v/{node_id}/sensor/{name}. @p text is the output of tlm_json_value1(). */
+bool tlm_mqtt_publish_sensor(tlm_mqtt_sensor_t which, const char *text, uint16_t len);
 
 /** QoS 1, not retained, to v2v/{node_id}/alert. */
 bool tlm_mqtt_publish_alert(const char *json, uint16_t len);

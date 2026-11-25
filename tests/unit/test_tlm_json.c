@@ -260,9 +260,91 @@ static void test_node_id_must_match_schema_pattern(void)
     TEST_ASSERT_TRUE(tlm_json_status(buf, sizeof buf, "esp32-b", true) > 0);
 }
 
+/* ------------------------------------------------------------------------- */
+/* per-sensor value: plain decimal text or "null" (topics v2v/{node_id}/sensor/..) */
+/* ------------------------------------------------------------------------- */
+
+static void check_value1(bool valid, float x, const char *want)
+{
+    char buf[16];
+    TEST_ASSERT_EQUAL_INT((int)strlen(want), tlm_json_value1(buf, sizeof buf, valid, x));
+    TEST_ASSERT_EQUAL_STRING(want, buf);
+}
+
+static void test_value1_one_decimal(void)
+{
+    check_value1(true, 42.5f, "42.5");
+    check_value1(true, 250.0f, "250.0");
+    check_value1(true, 500.0f, "500.0"); /* HC-SR04 out of range is valid (DEC-008): a number, not null */
+    check_value1(true, 0.0f, "0.0");
+    check_value1(true, 36.86f, "36.9");
+    check_value1(true, 99.96f, "100.0"); /* carry */
+}
+
+static void test_value1_negative_and_no_minus_zero(void)
+{
+    check_value1(true, -5.25f, "-5.3");
+    check_value1(true, -0.04f, "0.0");
+    check_value1(true, -0.0f, "0.0");
+}
+
+static void test_value1_null_on_fault_or_non_finite(void)
+{
+    check_value1(false, 42.5f, "null");
+    check_value1(false, NAN, "null");
+    check_value1(true, NAN, "null");
+    check_value1(true, INFINITY, "null");
+    check_value1(true, -INFINITY, "null");
+}
+
+static void test_value1_extreme_is_clamped(void)
+{
+    /* FIXED1_MAX 99999999.0f is not representable in float and rounds to 1e8; same as the telemetry numbers. */
+    check_value1(true, 3.0e38f, "100000000.0");
+    check_value1(true, -3.0e38f, "-100000000.0");
+}
+
+static void test_value1_truncation_and_nulls(void)
+{
+    char buf[16];
+    TEST_ASSERT_EQUAL_INT(4, tlm_json_value1(buf, 5u, true, 42.5f)); /* exact fit with the NUL */
+    TEST_ASSERT_EQUAL_STRING("42.5", buf);
+    TEST_ASSERT_EQUAL_INT(4, tlm_json_value1(buf, 5u, false, 0.0f));
+    TEST_ASSERT_EQUAL_STRING("null", buf);
+
+    for (size_t n = 1u; n < 5u; n++) /* one byte short or less: -1, empty string, no write past n */
+    {
+        char guarded[16];
+        memset(guarded, 0x5A, sizeof guarded);
+        TEST_ASSERT_EQUAL_INT(-1, tlm_json_value1(guarded, n, true, 42.5f));
+        TEST_ASSERT_EQUAL_CHAR('\0', guarded[0]);
+        for (size_t i = n; i < sizeof guarded; i++)
+        {
+            TEST_ASSERT_EQUAL_HEX8(0x5A, (unsigned char)guarded[i]);
+        }
+        memset(guarded, 0x5A, sizeof guarded);
+        TEST_ASSERT_EQUAL_INT(-1, tlm_json_value1(guarded, n, false, 0.0f));
+        TEST_ASSERT_EQUAL_CHAR('\0', guarded[0]);
+        for (size_t i = n; i < sizeof guarded; i++)
+        {
+            TEST_ASSERT_EQUAL_HEX8(0x5A, (unsigned char)guarded[i]);
+        }
+    }
+
+    char untouched[4] = {'x', 'x', 'x', 'x'};
+    TEST_ASSERT_EQUAL_INT(-1, tlm_json_value1(untouched, 0u, true, 1.0f));
+    TEST_ASSERT_EQUAL_CHAR('x', untouched[0]);
+    TEST_ASSERT_EQUAL_INT(-1, tlm_json_value1(NULL, 16u, true, 1.0f));
+}
+
 int main(void)
 {
     UNITY_BEGIN();
+    RUN_TEST(test_value1_one_decimal);
+    RUN_TEST(test_value1_negative_and_no_minus_zero);
+    RUN_TEST(test_value1_null_on_fault_or_non_finite);
+    RUN_TEST(test_value1_extreme_is_clamped);
+    RUN_TEST(test_value1_truncation_and_nulls);
     RUN_TEST(test_telemetry_nominal_without_optionals);
     RUN_TEST(test_telemetry_with_tps_and_sensor_ok);
     RUN_TEST(test_telemetry_null_on_sensor_fault);

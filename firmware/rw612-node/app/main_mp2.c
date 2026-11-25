@@ -67,6 +67,14 @@
 #if (APP_TLM_PERIOD_MS % APP_TLM_TICK_MS) != 0u
 #error "APP_TLM_PERIOD_MS must be a multiple of APP_TLM_TICK_MS"
 #endif
+#if (APP_SENSOR_TOPIC_PERIOD_MS % APP_TLM_TICK_MS) != 0u
+#error "APP_SENSOR_TOPIC_PERIOD_MS must be a multiple of APP_TLM_TICK_MS"
+#endif
+/* Sensor topics go out on ticks = 1 (mod per_sens), telemetry on ticks = 0 (mod per_tlm). Both periods even in
+ * ticks -> odd vs even ticks, so the two never share a wake-up. */
+#if (((APP_SENSOR_TOPIC_PERIOD_MS / APP_TLM_TICK_MS) % 2u) != 0u) || (((APP_TLM_PERIOD_MS / APP_TLM_TICK_MS) % 2u) != 0u)
+#error "sensor-topic and telemetry periods must both be an even number of APP_TLM_TICK_MS"
+#endif
 #if APP_SENSE_PRIO >= configMAX_PRIORITIES
 #error "APP_SENSE_PRIO must be below configMAX_PRIORITIES"
 #endif
@@ -498,7 +506,7 @@ static void log_line(const snapshot_t *s, const tlm_mqtt_stats_t *m)
     (void)snprintf(line, sizeof line,
                    "t=%u dist=%s temp=%s brake=%s brake_f=%s brake_raw=%d tps=%s alert=%s sev=%s fault=%d"
                    " echo_us=%u echo_err=%d dht_st=%d dht_ok=%u dht_cks=%u dht_to=%u dht_nr=%u"
-                   " slot_late_max=%u resyncs=%u wf=%d wf_dc=%u mq=%d mq_dc=%u mq_rc=%u pub_ok=%u pub_err=%u"
+                   " slot_late_max=%u resyncs=%u wf=%d wf_dc=%u mq=%d mq_dc=%u mq_rc=%u pub_ok=%u pub_err=%u sen_ok=%u sen_err=%u"
                    " al_drop=%u heap=%u heap_min=%u rssi=%d rem=%s sub=%u cmd_rx=%u cmd_ok=%u cmd_bad=%u cmd_dup=%u cmd_qd=%u"
 #if APP_ADC_DIAG
                    " adc_vref=%d adc_vbat=%d adc_vss=%d"
@@ -512,7 +520,8 @@ static void log_line(const snapshot_t *s, const tlm_mqtt_stats_t *m)
                    (unsigned)s->dht_ok, (unsigned)s->dht_cks, (unsigned)s->dht_to, (unsigned)s->dht_nr,
                    (unsigned)s->slot_late_max_ms, (unsigned)s->slot_resyncs, tlm_mqtt_wifi_up() ? 1 : 0,
                    (unsigned)m->wifi_drops, tlm_mqtt_connected() ? 1 : 0, (unsigned)m->mqtt_drops,
-                   (unsigned)m->mqtt_reconnects, (unsigned)m->pub_ok, (unsigned)m->pub_err, (unsigned)s_alert_drops,
+                   (unsigned)m->mqtt_reconnects, (unsigned)m->pub_ok, (unsigned)m->pub_err, (unsigned)m->sens_ok, (unsigned)m->sens_err,
+                   (unsigned)s_alert_drops,
                    (unsigned)xPortGetFreeHeapSize(), (unsigned)xPortGetMinimumEverFreeHeapSize(), tlm_mqtt_wifi_rssi(),
                    s->rem_active ? severity_name(s->rem_sev) : "-",
                    (unsigned)m->sub_ok, (unsigned)m->cmd_rx, (unsigned)s_cmd_ok, (unsigned)s_cmd_bad, (unsigned)s_cmd_dup,
@@ -585,6 +594,30 @@ static void publish_telemetry(const snapshot_t *s, uint32_t seq)
     }
 }
 
+/**
+ * Per-variable topics (plain text, QoS 0). "null" only on a sensor fault (sensor_ok bit missing); an HC-SR04
+ * out-of-range reading is valid (DEC-008) and is published as a number (e.g. "500.0").
+ */
+static void publish_sensor_topics(const snapshot_t *s)
+{
+    char txt[16];
+    int n = tlm_json_value1(txt, sizeof txt, (s->sensor_ok & ALERT_SENSOR_BRAKE) != 0u, s->brake_pct);
+    if (n > 0)
+    {
+        (void)tlm_mqtt_publish_sensor(TLM_SENSOR_BRAKE_PCT, txt, (uint16_t)n);
+    }
+    n = tlm_json_value1(txt, sizeof txt, s->temp_valid, s->temp_c);
+    if (n > 0)
+    {
+        (void)tlm_mqtt_publish_sensor(TLM_SENSOR_TEMP_C, txt, (uint16_t)n);
+    }
+    n = tlm_json_value1(txt, sizeof txt, s->dist_valid, s->distance_cm);
+    if (n > 0)
+    {
+        (void)tlm_mqtt_publish_sensor(TLM_SENSOR_DISTANCE_CM, txt, (uint16_t)n);
+    }
+}
+
 /** Publish queued alerts in order; an event leaves the queue only after mqtt_publish accepted it. */
 static void drain_alerts(void)
 {
@@ -636,6 +669,7 @@ static void tlm_task(void *arg)
     uint32_t seq            = 0u;
     uint32_t tick           = 0u;
     const uint32_t per_tlm  = APP_TLM_PERIOD_MS / APP_TLM_TICK_MS;
+    const uint32_t per_sens = APP_SENSOR_TOPIC_PERIOD_MS / APP_TLM_TICK_MS;
     TickType_t last_wake    = xTaskGetTickCount();
 
     for (;;)
@@ -645,7 +679,20 @@ static void tlm_task(void *arg)
         drain_alerts();
         handle_commands();
 
-        if ((++tick % per_tlm) != 0u)
+        tick++;
+#if APP_SENSOR_TOPICS
+        if (((tick % per_sens) == 1u) && tlm_mqtt_connected())
+        {
+            snapshot_t sens_snap;
+            if (xQueuePeek(s_snap_q, &sens_snap, 0) == pdTRUE)
+            {
+                publish_sensor_topics(&sens_snap);
+            }
+        }
+#else
+        (void)per_sens;
+#endif
+        if ((tick % per_tlm) != 0u)
         {
             continue;
         }

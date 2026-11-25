@@ -60,6 +60,8 @@ static char s_topic_tlm[TOPIC_MAX];
 static char s_topic_alert[TOPIC_MAX];
 static char s_topic_status[TOPIC_MAX];
 static char s_topic_cmd[TOPIC_MAX];
+static char s_topic_sensor[TLM_SENSOR_COUNT][TOPIC_MAX];
+static const char *const s_sensor_name[TLM_SENSOR_COUNT] = {"brake_pct", "temp_c", "distance_cm"};
 static char s_will_msg[PAYLOAD_MAX];
 static char s_online_msg[PAYLOAD_MAX];
 static int s_online_len;
@@ -78,6 +80,8 @@ static volatile uint32_t s_mqtt_drops;
 static volatile uint32_t s_mqtt_reconnects;
 static volatile uint32_t s_pub_ok;
 static volatile uint32_t s_pub_err;
+static volatile uint32_t s_sens_ok;  /* subset of pub_ok/pub_err: per-sensor topics only */
+static volatile uint32_t s_sens_err;
 static volatile uint32_t s_cmd_rx;
 static volatile uint32_t s_cmd_q_drop;
 
@@ -450,9 +454,18 @@ bool tlm_mqtt_start(void)
     int b = snprintf(s_topic_alert, sizeof s_topic_alert, "v2v/%s/alert", s_cfg->node_id);
     int c = snprintf(s_topic_status, sizeof s_topic_status, "v2v/%s/status", s_cfg->node_id);
     int d = snprintf(s_topic_cmd, sizeof s_topic_cmd, "v2v/%s/cmd", s_cfg->node_id);
+    bool sensor_topics_ok = true;
+    for (unsigned i = 0u; i < (unsigned)TLM_SENSOR_COUNT; i++)
+    {
+        int e = snprintf(s_topic_sensor[i], TOPIC_MAX, "v2v/%s/sensor/%s", s_cfg->node_id, s_sensor_name[i]);
+        if ((e <= 0) || ((size_t)e >= TOPIC_MAX))
+        {
+            sensor_topics_ok = false;
+        }
+    }
     s_online_len = tlm_json_status(s_online_msg, sizeof s_online_msg, s_cfg->node_id, true);
     int w        = tlm_json_status(s_will_msg, sizeof s_will_msg, s_cfg->node_id, false);
-    if ((a <= 0) || (b <= 0) || (c <= 0) || (d <= 0) || ((size_t)a >= sizeof s_topic_tlm) ||
+    if (!sensor_topics_ok || (a <= 0) || (b <= 0) || (c <= 0) || (d <= 0) || ((size_t)a >= sizeof s_topic_tlm) ||
         ((size_t)b >= sizeof s_topic_alert) || ((size_t)c >= sizeof s_topic_status) ||
         ((size_t)d >= sizeof s_topic_cmd) || (s_online_len < 0) || (w < 0))
     {
@@ -535,6 +548,24 @@ bool tlm_mqtt_publish_alert(const char *json, uint16_t len)
     return publish(s_topic_alert, json, len, 1);
 }
 
+bool tlm_mqtt_publish_sensor(tlm_mqtt_sensor_t which, const char *text, uint16_t len)
+{
+    if ((unsigned)which >= (unsigned)TLM_SENSOR_COUNT)
+    {
+        return false;
+    }
+    bool ok = publish(s_topic_sensor[which], text, len, 0);
+    if (ok)
+    {
+        s_sens_ok++;
+    }
+    else
+    {
+        s_sens_err++;
+    }
+    return ok;
+}
+
 void tlm_mqtt_get_stats(tlm_mqtt_stats_t *out)
 {
     if (out == NULL)
@@ -546,7 +577,9 @@ void tlm_mqtt_get_stats(tlm_mqtt_stats_t *out)
     out->mqtt_reconnects = s_mqtt_reconnects;
     out->pub_ok          = s_pub_ok;
     out->pub_err         = s_pub_err;
-    out->cmd_rx          = s_cmd_rx;
+    out->sens_ok         = s_sens_ok;
+    out->sens_err        = s_sens_err;
+    out->cmd_rx         = s_cmd_rx;
     out->cmd_q_drop      = s_cmd_q_drop;
     out->sub_ok          = s_sub_ok_count;
 }

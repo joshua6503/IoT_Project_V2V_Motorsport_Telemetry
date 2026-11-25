@@ -56,6 +56,15 @@ int tlm_json_alert(char *buf, size_t n, const char *node_id, uint32_t ts_ms, uin
  */
 int tlm_json_status(char *buf, size_t n, const char *node_id, bool online);
 
+/**
+ * @brief One sensor value as plain text for the per-variable topics v2v/{node_id}/sensor/{name}.
+ *
+ * "42.5" (one decimal, same rounding and clamp as the telemetry numbers) when @p valid and @p x is
+ * finite, otherwise the text "null" (sensor fault). A valid out-of-range reading is a number, not null.
+ * Needs n >= 5 for "null" and n >= strlen(text) + 1 for a number.
+ */
+int tlm_json_value1(char *buf, size_t n, bool valid, float x);
+
 #ifdef __cplusplus
 }
 #endif

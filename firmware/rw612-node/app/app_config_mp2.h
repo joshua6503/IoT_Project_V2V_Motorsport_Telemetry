@@ -18,6 +18,13 @@
 #define APP_TLM_PERIOD_MS 200u
 /** The tlm task wakes this often; alerts are drained every wake-up, telemetry every APP_TLM_PERIOD_MS. */
 #define APP_TLM_TICK_MS 50u
+/** Per-variable topics v2v/{node_id}/sensor/{brake_pct,temp_c,distance_cm}: 2 Hz (MP2 requirement). Published one
+ *  tick after a telemetry tick (500 ms vs 200 ms: the two never share a wake-up), to spread the MQTT ring buffer load. */
+#define APP_SENSOR_TOPIC_PERIOD_MS 500u
+/** 0 = per-sensor topics off (before/after measurements). */
+#ifndef APP_SENSOR_TOPICS
+#define APP_SENSOR_TOPICS 1
+#endif
 
 /* ------------------------------------------------------------------------- */
 /* FreeRTOS tasks. configMAX_PRIORITIES = 5 in the wifi_mqtt base            */

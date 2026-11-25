@@ -250,7 +250,7 @@ DHT11 failures are logged cumulatively: `dht_ok`, `dht_cks` (checksum), `dht_to`
 ### Log line
 
 One line every 200 ms (UART, 115200 8N1): `t dist temp brake brake_f brake_raw tps alert sev fault echo_us echo_err dht_st
-dht_ok dht_cks dht_to dht_nr slot_late_max resyncs wf wf_dc mq mq_dc mq_rc pub_ok pub_err al_drop heap rssi`
+dht_ok dht_cks dht_to dht_nr slot_late_max resyncs wf wf_dc mq mq_dc mq_rc pub_ok pub_err sen_ok sen_err al_drop heap rssi`
 (`wf`/`mq` = link/session up now, `slot_late_max` = worst lateness of the 50 ms pot slot in ms, `heap` = free FreeRTOS heap in bytes,
 `rssi` = dBm from the Wi-Fi driver, then `ip= up= link=` of the lwIP default netif). After the network starts, one `tasks(name:prio)` line lists every task's priority.
 Since DEC-013 the line also carries `heap_min` (true minimum-ever free heap, `xPortGetMinimumEverFreeHeapSize`, `heap_4.c:419`) after `heap`, and
@@ -361,6 +361,48 @@ messages over 311 s, `seq` 0..1555 with no gap, `pub_err=0`, no Wi-Fi or MQTT dr
 Image growth: text +7688, bss +1836 bytes versus the F3 build. Heap: about 0.6-1 KB of the FreeRTOS heap goes to the two queues
 (estimate). Free heap after the join 9.1-9.7 KB; the true minimum (`heap_min`) over 8 boots was 7.7-7.9 KB on five and
 5.0-5.3 KB on three: it depends on Wi-Fi join timing (assumption), and F5 (BLE) has to plan for the low value.
+
+## MP2: per-sensor topics (one topic per variable)
+
+MP2 asks for one MQTT topic per sensor variable. Besides the JSON `telemetry` topic (unchanged, 5 Hz, same fields and
+`seq`), `rw612-a` publishes:
+
+| Topic | Payload | QoS | Retain | Rate |
+|---|---|---|---|---|
+| `v2v/rw612-a/sensor/brake_pct` | `42.5` | 0 | no | 2 Hz |
+| `v2v/rw612-a/sensor/temp_c` | `36.8` | 0 | no | 2 Hz |
+| `v2v/rw612-a/sensor/distance_cm` | `250.0` | 0 | no | 2 Hz |
+
+- Payload is plain decimal text with exactly one decimal (no JSON, no unit, no newline), same rounding as the telemetry
+  numbers (`.5` rounds away from zero, never `-0.0`).
+- The text `null` means a **sensor fault** only: the matching `sensor_ok` bit is missing (brake pot read failed, DHT11
+  failed, no HC-SR04 echo at all). An HC-SR04 reading **out of range is valid** (DEC-008): it is a number and is
+  published as `500.0`, never as `null`.
+- Formatter: `tlm_json_value1()` in `firmware/common/{include,src}/tlm_json.{h,c}` (pure C, host tests in
+  `tests/unit/test_tlm_json.c`). Service: `tlm_mqtt_publish_sensor()` in `services/tlm_mqtt.{c,h}`.
+- Scheduling: the `tlm` task wakes every 50 ms (`APP_TLM_TICK_MS`). Telemetry goes out on ticks that are a multiple of 4
+  (200 ms); the three sensor topics go out together on ticks = 1 mod 10 (`APP_SENSOR_TOPIC_PERIOD_MS` 500 ms). Both periods
+  are an even number of ticks, so the sensor ticks (odd) never share a wake-up with a telemetry tick (even); a build
+  `#error` enforces it. Each wake-up adds at most three short publishes (about 45 bytes each on the wire, 1024-byte MQTT
+  ring buffer), and the sensor topics read the same latest snapshot as the telemetry.
+- `APP_SENSOR_TOPICS 0` in `app/app_config_mp2.h` (or `-DAPP_SENSOR_TOPICS=0`) turns them off, for before/after comparisons.
+- Log line: `sen_ok=` / `sen_err=` after `pub_err=` count the sensor-topic publishes (they are also included in `pub_ok` /
+  `pub_err`).
+- The contract in `interfaces/mqtt-topics.md` is updated by another session; this firmware follows the spec in the task.
+
+Bench check (2026-11-25, V2V-PIT, broker `10.42.0.1`, 3 minutes per run, same code with `APP_SENSOR_TOPICS` 0 vs 1):
+
+| Metric | Topics off | Topics on |
+|---|---|---|
+| Telemetry at the broker | 4.99 msg/s, `seq` 1155..2054, 0 gaps | 5.01 msg/s over the publishing span, `seq` 0..876, 0 gaps |
+| Each sensor topic | none | 2.00 msg/s (351 messages in 175 s), all payloads match `^(-?\d+\.\d\|null)$` |
+| `pub_err` / `sen_err` | 0 / 0 | 0 / 0 (`pub_ok` 1981 = 1080 sensor + 901 telemetry) |
+| `wf_dc` / `mq_dc` / `mq_rc` | 0 / 0 / 0 | 0 / 0 / 0 |
+| `slot_late_max`, free heap | 20 ms, 10192 B | 20 ms, 10192 B (`heap_min` 8576 in both) |
+| Image (`text` / `bss`) | 490484 / 235000 | 491012 / 235000 |
+
+A dashboard `alert` (warning, 6 s) and a `clear` sent mid-run were both applied (`cmd_rx` 2, `cmd_ok` 2, `rem=WARNING`
+until the `clear`); no alert was published back. No `null` appeared in the run (no sensor fault was provoked).
 
 ## Brake range investigation (2026-11-24)
 
