@@ -2,6 +2,25 @@
 
 Short, dated entries. Anything that becomes a lasting decision gets an ADR.
 
+## 2026-11-25
+
+- F1 closed: pit mode tested on the Pi 5. `pi-mode pit` + `confirm` (V2V-PIT AP, channel 6, broker
+  10.42.0.1:1883), confirmed mode `pit`; after `sudo reboot` the AP and the broker came back by themselves
+  (broker reachable ~70 s after the command, Pi kernel up ~13 s after it) and both nodes reconnected without
+  being touched. Laptop: Wi-Fi on V2V-PIT, internet through the Ethernet cable (interface metric Ethernet 10,
+  Wi-Fi 500; reverted with `-AutomaticMetric Enabled`) instead of the iPhone USB tether, which was not used.
+- Both nodes reflashed for V2V-PIT / 10.42.0.1 (ESP32 TX power kept at 8.5 dBm, RW612 unchanged). Clean 3-min
+  capture on the Pi broker (serial ports closed): esp32-b 925 msgs, rw612-a 925 msgs, both 4.97 msg/s, 0 `seq`
+  gaps, 0 `offline`, no reconnects. RW612 own counters after 12 min incl. the reboot test: `pub_err` 3 of
+  2455, one Wi-Fi drop and one MQTT reconnect (the Pi reboot), RSSI -42 dBm, `heap_min` 8128. Hotspot run was
+  ~4.5 msg/s, ~91 %, `pub_err` ~31 %; Familia_CM run 5.0 msg/s, 100 %; pit matches the home result.
+  The ESP32 check is only 3 min at 8.5 dBm (the 10-min run in pit and the range at distance are still open).
+- Pi Wi-Fi country: `raspi-config` stored value is MX; `iw reg get` shows the global domain `US` and the
+  brcmfmac phy as unset (`99`). Not changed (changing it while connected over `wlan0` can drop SSH); the AP
+  works on channel 6 either way.
+- Tooling notes: `mosquitto_sub -F` does not support `%U` on Windows (use `%I`); `pi-mode` lives in
+  `/usr/local/sbin` (not in a non-root PATH; `status` works without sudo by full path).
+
 ## 2026-11-23
 
 - F1 started. D1: MP2 = both nodes (rw612-a, esp32-b) publish directly over Wi-Fi/MQTT; BLE V2V moves to F5.

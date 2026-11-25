@@ -25,11 +25,11 @@ al gateway en la Raspberry Pi, con dashboard en vivo.
 
 ## 3. Componentes
 
-| Componente | Corre en | Estado (23-nov) |
+| Componente | Corre en | Estado (23-nov; Gateway y nodos: 25-nov) |
 |---|---|---|
-| Nodo A — `firmware/rw612-node` | FRDM-RW612, MCUXpresso, **FreeRTOS + lwIP** (DEC-012), base `wifi_examples/wifi_mqtt` | `rw612-a` publica directo a la Pi por Wi-Fi/MQTT. **Estable en Wi-Fi de casa Familia_CM** (3082/3082 msgs en 10 min, 0 pérdidas); **inestable en el hotspot del iPhone** |
-| Nodo B — `firmware/esp32-node` | ESP32 clásico, Arduino IDE | `esp32-b` publica a la Pi, pero **pierde mensajes en el Wi-Fi de casa** (prueba limpia de 10 min: ~34 % de la telemetría, envíos TCP detenidos con errno 119, 20 reconexiones). Buzzer pasivo en GPIO33; calibración de freno medida |
-| Gateway — Mosquitto | **Raspberry Pi 5**: hostname `RaspPi5`, Raspberry Pi OS (Debian 13 trixie, aarch64), usuario `joshua`, SSH con llave | Scripts listos en `gateway/pi/` (`setup_pi.sh`, `pi-mode.sh`, `verify_pi.sh`); **Pi 5 con Mosquitto con usuarios, hoy en Familia_CM, 192.168.0.239 (DHCP)**; modo pit V2V-PIT 10.42.0.1 preparado, **sin probar**. Dos modos porque su radio Wi-Fi no puede ser cliente y AP a la vez: **home** (cliente del Wi-Fi de casa, hotspot del iPhone de respaldo; mantenimiento) y **pit** (AP «V2V-PIT», 2.4 GHz, WPA2; trabajo con nodos y demo). Mosquitto con usuario/contraseña |
+| Nodo A — `firmware/rw612-node` | FRDM-RW612, MCUXpresso, **FreeRTOS + lwIP** (DEC-012), base `wifi_examples/wifi_mqtt` | `rw612-a` publica directo a la Pi por Wi-Fi/MQTT. **Estable en Wi-Fi de casa Familia_CM** (3082/3082 msgs en 10 min, 0 pérdidas); **inestable en el hotspot del iPhone**. **En pit (V2V-PIT, 25-nov): 925/925 msgs en 3 min (4.97 msg/s), 0 pérdidas, 0 `offline`**; contadores propios tras 12 min y un reinicio de la Pi: `pub_err` 3 de 2455, un corte de Wi-Fi/MQTT (el del reinicio), RSSI -42 dBm |
+| Nodo B — `firmware/esp32-node` | ESP32 clásico, Arduino IDE | `esp32-b` publica a la Pi, pero **pierde mensajes en el Wi-Fi de casa** (prueba limpia de 10 min: ~34 % de la telemetría, envíos TCP detenidos con errno 119, 20 reconexiones). Buzzer pasivo en GPIO33; calibración de freno medida. **En pit (V2V-PIT, 25-nov, TX 8.5 dBm): 925/925 msgs en 3 min (4.97 msg/s), 0 pérdidas, 0 `offline`** (prueba corta; falta repetir la de 10 min) |
+| Gateway — Mosquitto | **Raspberry Pi 5**: hostname `RaspPi5`, Raspberry Pi OS (Debian 13 trixie, aarch64), usuario `joshua`, SSH con llave | Scripts listos en `gateway/pi/` (`setup_pi.sh`, `pi-mode.sh`, `verify_pi.sh`); **Pi 5 con Mosquitto con usuarios; modo pit probado el 25-nov y confirmado: la Pi arranca en pit** (AP V2V-PIT, broker 10.42.0.1:1883; tras `sudo reboot` el AP y el broker volvieron solos en ~70 s y los dos nodos se reconectaron sin intervención). En home queda en Familia_CM, 192.168.0.239 (DHCP). Dos modos porque su radio Wi-Fi no puede ser cliente y AP a la vez: **home** (cliente del Wi-Fi de casa, hotspot del iPhone de respaldo; mantenimiento) y **pit** (AP «V2V-PIT», 2.4 GHz, WPA2; trabajo con nodos y demo). Mosquitto con usuario/contraseña |
 | Dashboard MP2 — `dashboard/python/dashboard.py` | Python (Tkinter + paho-mqtt) en la **laptop** de Joshua (Windows) | DEC-015: dashboard de MP2. Muestra los dos nodos (en línea, último mensaje, freno, temperatura, distancia), registro de alertas, panel de comandos y reenvío de frenado brusco (DEC-014). Probado con el simulador |
 | Dashboard NXP — `dashboard/node-red/flows.json` | Node-RED en la laptop | Se conserva para la presentación en NXP, sin cambios (DEC-015). Flows y `start-dashboard.ps1`; probado con el simulador (falta captura con nodos reales) |
 | Simulador — `tools/node-simulator` | Cualquier PC | Publica dos nodos (rw612-a, esp32-b) con status/LWT y alertas; registra los comandos `cmd` que recibe (valida, deduplica, no actúa); broker y credenciales por argumentos o variables de entorno |
@@ -44,7 +44,7 @@ al gateway en la Raspberry Pi, con dashboard en vivo.
 | Nodo ↔ nodo (V2V) | `interfaces/ble-gatt.md`, `v2v_protocol.h` | Contrato listo; nada implementado |
 | Broker → dashboard | Dashboard Python de MP2 (DEC-015) o Node-RED (NXP) en la laptop, usuario MQTT `dashboard` | Funcionando; probado con el simulador, pendiente con nodos reales |
 | Dashboard → nodos (comandos) | `v2v/{node_id}/cmd` y `v2v/all/cmd` (DEC-013), QoS 1, sin retain; `interfaces/mqtt-topics.md` | Contrato congelado y dashboard listo. **Firmware pendiente** en ambos nodos (otras sesiones); hoy solo responde el simulador |
-| Red de la demo | La Pi en modo **pit**: AP «V2V-PIT» (2.4 GHz, WPA2); broker en `10.42.0.1:1883` (dirección fija del AP); los nodos siempre apuntan a V2V-PIT. En modo **home** la Pi es cliente de la red de casa (nombre `RaspPi5.local`; esas IP cambian con la red) | Implementado en `gateway/pi/pi-mode.sh`; detalle en `gateway/pi/README.md` |
+| Red de la demo | La Pi en modo **pit**: AP «V2V-PIT» (2.4 GHz, WPA2); broker en `10.42.0.1:1883` (dirección fija del AP); los nodos siempre apuntan a V2V-PIT. En modo **home** la Pi es cliente de la red de casa (nombre `RaspPi5.local`; esas IP cambian con la red) | Implementado en `gateway/pi/pi-mode.sh`; detalle en `gateway/pi/README.md`. **Probado el 25-nov:** laptop en V2V-PIT con internet por Ethernet, ambos nodos publican a 10.42.0.1 |
 
 ## 5. Seguridad y secretos
 
@@ -94,8 +94,8 @@ Fecha objetivo: **25-nov-2026** (supuesta; la fecha exacta de entrega aún no se
 | Fase | Qué deja funcionando | Fechas | Estado |
 |---|---|---|---|
 | F0 Reestructura | Repo a fases + verificación del estado real | 11–23 nov | ✅ 23-nov |
-| F1 Pi 5 (broker + modos casa/pits) + dashboard Node-RED en laptop + schema | Broker con usuarios en la Pi, modos home/pit con rollback, dashboard en vivo, schema v0.2 | 23–24 nov | ✅ hecha, salvo la captura del dashboard con nodos reales |
-| F2 ESP32 publicando por Wi-Fi/MQTT | | 23–24 nov | en curso (inestabilidad del ESP32, ver §9) |
+| F1 Pi 5 (broker + modos casa/pits) + dashboard Node-RED en laptop + schema | Broker con usuarios en la Pi, modos home/pit con rollback, dashboard en vivo, schema v0.2 | 23–24 nov | ✅ cerrada el 25-nov: modo pit probado y confirmado (la Pi arranca en pit); la captura del dashboard con nodos reales sigue en §9b |
+| F2 ESP32 publicando por Wi-Fi/MQTT | | 23–24 nov | en curso (inestabilidad del ESP32 en el Wi-Fi de casa, ver §9; en pit 100 % en 3 min el 25-nov, falta la prueba de 10 min) |
 | F3 RW612 publicando por Wi-Fi/MQTT (base: ejemplo wifi del SDK / práctica 3) | | 23–25 nov | ✅ hecha (rw612-a) |
 | F4 Demo MP2 + diagramas de conexión | Dashboard MP2 en Python con comandos (DEC-013..015) | 24–25 nov | en curso (diagramas, demo; dashboard Python y contrato `cmd` listos, firmware de `cmd` pendiente) |
 | F5 V2V por BLE en ambos nodos (Wi-Fi + BLE a la vez en la RW612) | | después de MP2 | pendiente |
@@ -121,8 +121,8 @@ a. **El ESP32 pierde mensajes en el Wi-Fi de casa.** El RW612 en la misma red y 
 b. Captura del dashboard con los dos nodos reales en la Pi → `docs/04-testing/evidence/`.
 c. Diagramas de conexión, si no están hechos. Deben mostrar el **buzzer en GPIO33** (ESP32). El prompt S4 está en el
    documento del Project de claude.ai `claude/MP2_PROMPTS.md`.
-d. Prueba del modo pit (checklist de `gateway/pi/README.md`; tethering USB del iPhone para internet).
-e. Cerrar MP2: reservar IP fija para la Pi en el router o usar modo pit; borrar
+d. ✅ 25-nov: prueba del modo pit hecha (internet de la laptop por Ethernet en vez del tethering; la Pi arranca en pit, comprobado con `sudo reboot`). Opcional pendiente: la prueba de rollback (D del checklist).
+e. Cerrar MP2: (la IP fija ya no hace falta: la Pi arranca en pit); borrar
    `/etc/sudoers.d/v2v-tests` en la Pi; borrar `C:/Users/joshu/pi-sub.opts`; actualizar §8.
 
 ### Abiertos
