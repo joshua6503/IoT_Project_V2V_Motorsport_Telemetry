@@ -52,7 +52,8 @@
 /* Timing                                                                     */
 /* ------------------------------------------------------------------------- */
 #define TELEMETRY_PERIOD_MS 200u /* 5 Hz (target, to validate)                 */
-#define BRAKE_SAMPLE_MS      50u /* 20 Hz brake sampling (ASSUMPTION)          */
+#define SENSOR_PERIOD_MS    500u /* 2 Hz per-variable topic sensor/brake_pct   */
+#define BRAKE_SAMPLE_MS     50u /* 20 Hz brake sampling (ASSUMPTION)          */
 #define STATUS_LOG_MS      1000u /* 1 Hz serial status line                    */
 #define MQTT_KEEPALIVE_S     10  /* LWT fires ~1.5x this after an unclean drop */
                                  /* (ASSUMPTION, MQTT 3.1.1; to validate)      */

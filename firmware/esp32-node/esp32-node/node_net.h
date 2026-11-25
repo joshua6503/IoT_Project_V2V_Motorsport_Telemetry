@@ -50,6 +50,10 @@ bool net_mqtt_connected(void);
 /** Telemetry, QoS 0. Returns false if not sent (offline / outbox backlog). */
 bool net_publish_telemetry(const char *json, int len);
 
+/** Per-variable topic v2v/<node>/sensor/brake_pct: plain text (e.g. "42.5" or "null"), QoS 0, not
+ *  retained. Shares the telemetry publish task and queue; never blocks. Returns false if dropped. */
+bool net_publish_sensor_brake(const char *txt, int len);
+
 /** Fill @p buf with link/publish diagnostics (BSSID, channel, RSSI, longest publish since the
  *  last call, publish ok/fail counters, last MQTT transport errno). Resets the max. */
 void net_diag_str(char *buf, size_t size);

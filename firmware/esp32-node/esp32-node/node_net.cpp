@@ -18,6 +18,7 @@
 #define TOPIC_CMD       "v2v/" NODE_ID_STR "/cmd"
 #define TOPIC_CMD_ALL   "v2v/all/cmd"
 #define TOPIC_TELEMETRY "v2v/" NODE_ID_STR "/telemetry"
+#define TOPIC_SENSOR_BRAKE "v2v/" NODE_ID_STR "/sensor/brake_pct"
 #define TOPIC_ALERT     "v2v/" NODE_ID_STR "/alert"
 #define TOPIC_STATUS    "v2v/" NODE_ID_STR "/status"
 
@@ -43,6 +44,7 @@ typedef struct
 {
     char json[160];
     int  len;
+    bool sensor; /* true: per-variable topic v2v/<node>/sensor/brake_pct (plain text) */
 } tlm_item_t;
 static QueueHandle_t     s_tlm_queue       = NULL;
 static volatile uint32_t s_tlm_progress_ms = 0;
@@ -80,6 +82,7 @@ static volatile uint32_t s_backoff_ms    = RECONNECT_MIN_MS;
 static volatile uint32_t s_pub_max_us   = 0; /* longest esp_mqtt_client_publish() since last read */
 static volatile uint32_t s_pub_ok       = 0;
 static volatile uint32_t s_pub_fail     = 0;
+static volatile uint32_t s_sens_ok      = 0; /* per-variable topic publishes accepted by the client */
 static volatile int      s_last_errno   = 0; /* last transport errno from MQTT_EVENT_ERROR */
 static volatile int      s_last_errtype = 0;
 
@@ -373,13 +376,22 @@ static void telemetry_task(void *arg)
             if (s_mqtt_up)
             {
                 uint32_t t0 = micros();
-                int      r  = esp_mqtt_client_publish(s_client, TOPIC_TELEMETRY, item.json, item.len, 0, 0);
+                int      r  = esp_mqtt_client_publish(s_client, item.sensor ? TOPIC_SENSOR_BRAKE : TOPIC_TELEMETRY,
+                                                      item.json, item.len, 0, 0);
                 uint32_t dt = micros() - t0;
                 if (dt > s_pub_max_us)
                 {
                     s_pub_max_us = dt;
                 }
-                if (r >= 0)
+                if (item.sensor)
+                {
+                    /* Watchdog rule (b) and pubok/pubfail keep meaning "telemetry" only. */
+                    if (r >= 0)
+                    {
+                        s_sens_ok = s_sens_ok + 1;
+                    }
+                }
+                else if (r >= 0)
                 {
                     s_last_pub_ok_ms = millis();
                     s_pub_ok = s_pub_ok + 1;
@@ -560,27 +572,38 @@ bool net_mqtt_connected(void)
     return s_mqtt_up;
 }
 
-bool net_publish_telemetry(const char *json, int len)
+static bool queue_publish(const char *txt, int len, bool sensor)
 {
     if (!s_mqtt_up || s_tlm_queue == NULL || len <= 0 || len >= (int)sizeof(((tlm_item_t *)0)->json))
     {
         return false;
     }
     tlm_item_t item;
-    memcpy(item.json, json, len);
+    memcpy(item.json, txt, len);
     item.json[len] = 0;
     item.len       = len;
+    item.sensor    = sensor;
     return xQueueSend(s_tlm_queue, &item, 0) == pdTRUE; /* full queue = link is slow: drop */
+}
+
+bool net_publish_telemetry(const char *json, int len)
+{
+    return queue_publish(json, len, false);
+}
+
+bool net_publish_sensor_brake(const char *txt, int len)
+{
+    return queue_publish(txt, len, true);
 }
 
 void net_diag_str(char *buf, size_t size)
 {
     uint32_t max_us = s_pub_max_us;
     s_pub_max_us    = 0;
-    snprintf(buf, size, "bssid=%s ch=%d rssi=%d pubmax=%lums pubok=%lu pubfail=%lu errno=%d/%d",
+    snprintf(buf, size, "bssid=%s ch=%d rssi=%d pubmax=%lums pubok=%lu pubfail=%lu sensok=%lu errno=%d/%d",
              WiFi.BSSIDstr().c_str(), (int)WiFi.channel(), (int)WiFi.RSSI(),
              (unsigned long)(max_us / 1000u), (unsigned long)s_pub_ok, (unsigned long)s_pub_fail,
-             s_last_errtype, s_last_errno);
+             (unsigned long)s_sens_ok, s_last_errtype, s_last_errno);
 }
 
 bool net_publish_alert(const char *json, int len)

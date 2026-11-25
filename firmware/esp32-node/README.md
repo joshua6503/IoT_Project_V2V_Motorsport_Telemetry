@@ -3,8 +3,9 @@
 Test/support node for V2V. See [ADR-0002](../../docs/adr/0002-esp32-arduino-as-secondary-node.md).
 
 **Phase F2 (Wi-Fi + MQTT, no BLE):** node `esp32-b` joins the Pi access point `V2V-PIT` and
-publishes to Mosquitto: `v2v/esp32-b/telemetry` (QoS 0, 5 Hz target), `/alert` (QoS 1) and
-`/status` (QoS 1, retained `online`, LWT `offline`). Contract: `interfaces/mqtt-topics.md`.
+publishes to Mosquitto: `v2v/esp32-b/telemetry` (QoS 0, 5 Hz target), `/alert` (QoS 1),
+`/status` (QoS 1, retained `online`, LWT `offline`) and the per-variable topic
+`v2v/esp32-b/sensor/brake_pct` (QoS 0, 2 Hz, plain text). Contract: `interfaces/mqtt-topics.md`.
 
 ## Layout
 
@@ -64,6 +65,13 @@ bench on 2026-11-23 and is no longer an ASSUMPTION.
 - `sensor_ok` is the bitmask of `alert_logic.h`: `ALERT_SENSOR_BRAKE` (4) when the brake is valid, else 0.
 - Telemetry `{"node_id","ts_ms","seq","brake_pct","sensor_ok"}`; alert `{"node_id","ts_ms","seq","alert_type","severity"}`
   (alert `seq` is uint16). MQTT is informative: with the link down, messages are dropped and logged, not queued.
+- Per-variable topic `v2v/esp32-b/sensor/brake_pct` (MP2: one topic per sensor variable): plain decimal text
+  with one decimal (`42.5`), `null` when the brake reading is invalid; QoS 0, not retained, every
+  `SENSOR_PERIOD_MS` (500 ms = 2 Hz, offset 100 ms from the telemetry tick). It goes through the same queue and
+  publish task as telemetry (`tlm_item_t.sensor`), so `loop()` never waits. The watchdog and the `pubok`/`pubfail`
+  counters still count telemetry only; the `[st]` line adds `sensok`. Bench (2026-11-25, V2V-PIT, 178 s):
+  356 sensor messages (2.0 Hz), 890 telemetry (5.0 Hz), 0 `seq` gaps, 0 `offline`, no retained sensor
+  message, `alert`/`clear` commands still applied.
 - Serial 115200: `[wifi]`, `[mqtt]`, `[btn]`, `[alert]` events and a 1 Hz `[st]` line.
 
 ## Remote commands (DEC-013)

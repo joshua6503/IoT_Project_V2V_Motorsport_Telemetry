@@ -6,6 +6,7 @@
  *  - BOOT button -> manual alert (info) + node-local confirmation
  *  - LEDs / buzzer driven by alert_pattern_for() (DEC-004)
  *  - telemetry 5 Hz, alerts QoS 1, status retained + LWT (node_net.cpp)
+ *  - per-variable topic sensor/brake_pct 2 Hz, plain text (MP2)
  * The main loop never blocks: no delay(), everything is scheduled with millis().
  */
 #include <Preferences.h>
@@ -56,6 +57,12 @@ static const char *reset_reason_str(esp_reset_reason_t r)
 static uint32_t s_next_brake_ms  = 0;
 static uint32_t s_next_tlm_ms    = 0;
 static uint32_t s_next_status_ms = 0;
+static uint32_t s_next_sensor_ms = 0;
+
+/* Per-variable topic rate (MP2); default here so an older config.h still builds. */
+#ifndef SENSOR_PERIOD_MS
+#define SENSOR_PERIOD_MS 500u /* 2 Hz */
+#endif
 
 static const char *alert_type_str(v2v_alert_type_t t)
 {
@@ -150,6 +157,22 @@ static void publish_telemetry(uint32_t now)
     }
 }
 
+/** v2v/<node>/sensor/brake_pct: plain decimal, one decimal place, "null" when the brake reading is invalid. */
+static void publish_sensor(void)
+{
+    char txt[16];
+    int  n;
+    if ((s_sensor_ok & ALERT_SENSOR_BRAKE) != 0u)
+    {
+        n = snprintf(txt, sizeof(txt), "%.1f", (double)s_brake_pct);
+    }
+    else
+    {
+        n = snprintf(txt, sizeof(txt), "null");
+    }
+    (void)net_publish_sensor_brake(txt, n); /* informative: dropped when the link is down */
+}
+
 void setup()
 {
     Serial.begin(115200);
@@ -180,6 +203,7 @@ void setup()
     s_next_brake_ms  = now;
     s_next_tlm_ms    = now + TELEMETRY_PERIOD_MS;
     s_next_status_ms = now + STATUS_LOG_MS;
+    s_next_sensor_ms = now + 100u; /* offset from the 200 ms telemetry tick */
 }
 
 void loop()
@@ -203,6 +227,11 @@ void loop()
     if (due(now, &s_next_tlm_ms, TELEMETRY_PERIOD_MS))
     {
         publish_telemetry(now);
+    }
+
+    if (due(now, &s_next_sensor_ms, SENSOR_PERIOD_MS))
+    {
+        publish_sensor();
     }
 
     /* Remote commands (DEC-013): actuate only, never publish an alert (no loops). */
