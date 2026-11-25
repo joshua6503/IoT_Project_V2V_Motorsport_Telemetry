@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fake V2V nodes: publish telemetry, status (with LWT) and occasional alerts over MQTT.
+"""Fake V2V nodes: publish telemetry, per-variable sensor/ topics (2 Hz), status (with LWT) and occasional alerts over MQTT.
 Also subscribe to v2v/{node_id}/cmd and v2v/all/cmd and log each command (no actuation).
 
 Topics and payloads follow interfaces/mqtt-topics.md and
@@ -50,6 +50,23 @@ def make_telemetry(node_id: str, seq: int, ts_ms: int, rng: random.Random) -> di
         "distance_cm": None if no_echo else round(rng.uniform(20.0, 400.0), 1),
         "sensor_ok": sensor_ok,
     }
+
+
+SENSOR_RATE_HZ = 2.0
+SENSOR_VARS_BY_NODE = {"esp32-b": ("brake_pct",)}   # every other node publishes all three
+ALL_SENSOR_VARS = ("brake_pct", "temp_c", "distance_cm")
+
+
+def make_sensor_messages(node_id: str, telemetry: dict) -> list[tuple[str, str]]:
+    """Per-variable sensor/ messages (leaf, plain text) derived from a telemetry sample.
+
+    One decimal, "null" when the value is null. esp32-b publishes only brake_pct (contract).
+    """
+    out = []
+    for var in SENSOR_VARS_BY_NODE.get(node_id, ALL_SENSOR_VARS):
+        value = telemetry.get(var)
+        out.append((f"sensor/{var}", "null" if value is None else f"{value:.1f}"))
+    return out
 
 
 def make_alert(node_id: str, seq: int, ts_ms: int, rng: random.Random) -> dict:
@@ -208,17 +225,23 @@ def run(args: argparse.Namespace) -> int:
     t0 = time.monotonic()
     seq = 0
     alert_seq = {n: 0 for n in args.node_list}
+    next_sensor = 0.0
     try:
         while args.count == 0 or seq < args.count:
             ts_ms = int((time.monotonic() - t0) * 1000)
             for node, client in clients.items():
-                client.publish(topic(node, "telemetry"),
-                               json.dumps(make_telemetry(node, seq, ts_ms, rng)), qos=0)
+                sample = make_telemetry(node, seq, ts_ms, rng)
+                client.publish(topic(node, "telemetry"), json.dumps(sample), qos=0)
+                if time.monotonic() >= next_sensor:
+                    for leaf, text in make_sensor_messages(node, sample):
+                        client.publish(topic(node, leaf), text, qos=0)
                 if rng.random() < args.alert_prob:
                     alert = make_alert(node, alert_seq[node], ts_ms, rng)
                     client.publish(topic(node, "alert"), json.dumps(alert), qos=1)
                     print(f"alert: {alert}")
                     alert_seq[node] += 1
+            if time.monotonic() >= next_sensor:
+                next_sensor = time.monotonic() + 1.0 / SENSOR_RATE_HZ
             seq += 1
             time.sleep(period)
     except KeyboardInterrupt:
