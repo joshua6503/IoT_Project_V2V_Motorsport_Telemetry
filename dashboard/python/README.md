@@ -1,6 +1,6 @@
 # Dashboard Python (MP2)
 
-Dashboard simple de escritorio (Tkinter + paho-mqtt) para MP2: muestra los dos nodos y envía
+Dashboard de escritorio (Tkinter + matplotlib + paho-mqtt) para MP2: muestra los dos nodos y envía
 comandos. Es el dashboard de MP2 (DEC-015); el de Node-RED sigue en `dashboard/node-red/` para la
 presentación en NXP.
 
@@ -41,7 +41,13 @@ Pide la contraseña del usuario MQTT con entrada oculta. Nunca se guarda en un a
 - **Una tarjeta por nodo** (`rw612-a`, `esp32-b`; aparece otra si llega un nodo nuevo):
   - *En línea / Fuera de línea*, según el estado retenido del nodo (LWT).
   - *Último mensaje*: hace cuántos segundos llegó algo del nodo.
-  - *Freno* (%), *Temperatura* (°C) y *Distancia* (cm; «sin eco» cuando el sensor no recibe eco).
+  - Tres indicadores circulares: *Freno* (%), *Temperatura* (°C) y *Distancia* (cm). Se alimentan de los
+    topics `v2v/+/sensor/{brake_pct|temp_c|distance_cm}`. Franjas verde/amarillo/rojo (umbrales por defecto
+    del firmware, por calibrar, OPEN-005): freno 50/70 %, temperatura 30/35 °C, distancia 30/15 cm (invertida:
+    cerca es rojo). Muestra «--» (o «sin eco» en distancia) si el valor es `null`, si el nodo no publica esa
+    variable (`esp32-b` solo publica freno) o si el último dato tiene más de 5 s.
+- **Gráficas en vivo** de los últimos 5 minutos, una por variable, con los dos nodos en la misma gráfica.
+  Un `null` corta la línea. Se redibujan a ~2 Hz.
 - **Registro**: una fila por alerta recibida (hora, nodo, tipo, severidad; en rojo las críticas) y por
   cada comando enviado (en azul, nodo `→ destino`). Guarda las últimas 200.
 - **Comandos**:
@@ -55,6 +61,8 @@ Pide la contraseña del usuario MQTT con entrada oculta. Nunca se guarda en un a
 
 El contrato de los comandos está en `interfaces/mqtt-topics.md`. Los nodos reales aún no reaccionan a los
 comandos (falta el firmware); el simulador (`tools/node-simulator`) sí los registra en su log.
+
+Las alertas, el estado y el último mensaje siguen saliendo de `v2v/+/alert`, `v2v/+/status` y `v2v/+/telemetry`.
 
 ## Prueba sin placas
 
