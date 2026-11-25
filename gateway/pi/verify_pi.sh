@@ -4,7 +4,9 @@
 # pit mode and after a reboot. No sudo needed.
 #
 #   verify-pi                      asks the password of user "dashboard" (hidden)
-#   V2V_VERIFY_USER=esp32-b verify-pi   check with another MQTT user
+#   V2V_VERIFY_USER=<user> verify-pi    check with another MQTT user. With the ACL
+#                                       (gateway/pi/acl) only "dashboard" may use v2v/verify/#;
+#                                       node users will fail the round trip by design.
 set -uo pipefail
 
 USER_MQTT="${V2V_VERIFY_USER:-dashboard}"

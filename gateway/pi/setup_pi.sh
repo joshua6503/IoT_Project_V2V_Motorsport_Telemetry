@@ -7,11 +7,14 @@
 #
 # MQTT passwords are typed by you at the mosquitto_passwd prompt (hidden); they are never stored
 # in this repo or passed on a command line. Users: rw612-a, esp32-b, dashboard.
+# The ACL (gateway/pi/acl, next to this script) is installed to /etc/mosquitto/acl and enabled
+# with acl_file in conf.d/v2v.conf; re-running the script refreshes both.
 set -euo pipefail
 
 [ "$(id -u)" -eq 0 ] || { echo "run with sudo" >&2; exit 1; }
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PASSWD_FILE=/etc/mosquitto/passwd
+ACL_FILE=/etc/mosquitto/acl
 CONF=/etc/mosquitto/conf.d/v2v.conf
 USERS=(rw612-a esp32-b dashboard)
 
@@ -28,11 +31,15 @@ fi
 
 echo "== 2/6 broker configuration"
 install -d /etc/mosquitto/conf.d
+# Access control list (gateway/pi/acl): installed before the config that references it.
+[ -f "$HERE/acl" ] || { echo "missing $HERE/acl (copy gateway/pi/acl next to this script)" >&2; exit 1; }
+install -m 640 -o root -g mosquitto "$HERE/acl" "$ACL_FILE"
 {
-  echo "# Managed by gateway/pi/setup_pi.sh. Authenticated MQTT for the V2V nodes."
+  echo "# Managed by gateway/pi/setup_pi.sh. Authenticated MQTT + ACL for the V2V nodes."
   echo "listener 1883 0.0.0.0"
   echo "allow_anonymous false"
   echo "password_file $PASSWD_FILE"
+  echo "acl_file $ACL_FILE"
   # Debian's main mosquitto.conf already enables persistence; add it only if missing.
   grep -qE '^\s*persistence\s+true' /etc/mosquitto/mosquitto.conf || echo "persistence true"
 } > "$CONF"

@@ -1,0 +1,37 @@
+# ACL de Mosquitto 2.0 para el gateway V2V (se instala en /etc/mosquitto/acl, root:mosquitto 0640).
+# Referencia: man mosquitto.conf, seccion acl_file. No contiene secretos (solo nombres de usuario).
+#
+# Con acl_file activo, todo lo que no este permitido aqui queda DENEGADO.
+# Convencion: el nombre de usuario MQTT de cada nodo es igual a su node_id (rw612-a, esp32-b).
+# "all" y "dashboard" nunca deben usarse como node_id.
+
+# ---------------------------------------------------------------------------
+# 1) Reglas para NODOS (rw612-a, esp32-b): lineas "pattern".
+#    Una linea "pattern" aplica a TODOS los usuarios, aparezca donde aparezca en el archivo,
+#    y %u se reemplaza por el nombre de usuario. Asi cada nodo solo escribe bajo v2v/<su id>/.
+#    Nota: tambien aplica a "dashboard" (podria escribir v2v/dashboard/...; es inofensivo).
+# ---------------------------------------------------------------------------
+# Publicar sus propios datos. QoS 0/1, no retenidos salvo status.
+pattern write v2v/%u/telemetry
+pattern write v2v/%u/alert
+# status: el nodo publica "online" retenido y registra el LWT "offline" en este mismo topico.
+# Mosquitto verifica el permiso de escritura del topico del LWT al conectar: sin esta
+# linea el CONNECT del nodo seria rechazado.
+pattern write v2v/%u/status
+# Topicos de sensores adicionales (v2v/{node}/sensor/...), cualquier profundidad.
+pattern write v2v/%u/sensor/#
+# Recibir comandos: los dirigidos a el y los de difusion (DEC-013). Solo lectura.
+pattern read v2v/%u/cmd
+pattern read v2v/all/cmd
+
+# ---------------------------------------------------------------------------
+# 2) Reglas para el usuario "dashboard" (laptop del equipo).
+# ---------------------------------------------------------------------------
+user dashboard
+# Ve todo el trafico V2V (telemetria, alertas, status retenido, cmd, sensores).
+topic read v2v/#
+# Unica escritura sobre nodos: enviar comandos a un nodo (v2v/{id}/cmd) o a todos (v2v/all/cmd,
+# que tambien encaja en el "+"). No puede publicar telemetry, alert ni status de ningun nodo.
+topic write v2v/+/cmd
+# Prueba de ida y vuelta de verify-pi (v2v/verify/anon, v2v/verify/rt): lectura y escritura.
+topic readwrite v2v/verify/#

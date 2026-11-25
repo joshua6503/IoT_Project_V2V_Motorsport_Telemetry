@@ -20,7 +20,7 @@ Los nodos se configuran **siempre para V2V-PIT**; cambiar el modo de la Pi nunca
 | SSID | `V2V-PIT` (WPA2-PSK, 2.4 GHz; la contraseña la sabe Joshua, va solo en `config.h`, ignorado por git) |
 | Broker | **`10.42.0.1`** (fija en modo pit), puerto **1883**, sin TLS |
 | Usuarios MQTT | `rw612-a` y `esp32-b` (cada nodo usa el suyo; contraseña en su `config.h`) |
-| Tópicos | `v2v/{node_id}/telemetry`, `alert`, `status` (ver `interfaces/mqtt-topics.md`) |
+| Tópicos | `v2v/{node_id}/telemetry`, `alert`, `status`, `sensor/...` (ver `interfaces/mqtt-topics.md`); cada nodo solo puede publicar bajo `v2v/<su usuario>/` (ver [ACL](#lista-de-control-de-acceso-acl)) |
 
 Esa IP está fijada en el perfil del AP; se verificó en la Pi con `pi-mode status` (ver reporte F1).
 Las IP del modo `home` cambian con la red: usa `RaspPi5.local`.
@@ -32,7 +32,7 @@ cambio de red, la Pi sigue en el hotspot del iPhone (que sí tiene internet).
 
 1. Desde la laptop, copiar los scripts (sin sudo):
    ```powershell
-   scp gateway/pi/pi-mode.sh gateway/pi/setup_pi.sh gateway/pi/verify_pi.sh gateway/pi/add_home_wifi.sh joshua@RaspPi5.local:~/v2v-gateway/
+   scp gateway/pi/pi-mode.sh gateway/pi/setup_pi.sh gateway/pi/verify_pi.sh gateway/pi/add_home_wifi.sh gateway/pi/acl joshua@RaspPi5.local:~/v2v-gateway/
    ```
 2. En la Pi (`ssh joshua@RaspPi5.local`; con el hotspot, `RaspPi5.local` o la IP que tenga):
    ```bash
@@ -132,12 +132,59 @@ el broker de la laptop** antes de empezar. En pit la Pi **no tiene internet**.
 Mientras la laptop está en V2V-PIT no tiene internet por ahí: usa el tethering USB del iPhone y
 comprueba las métricas de ruta (ver `dashboard/README.md`).
 
+## Lista de control de acceso (ACL)
+
+Además de usuario/contraseña, el broker aplica la ACL [`acl`](acl) (Mosquitto 2.0, `acl_file`). Se
+instala en `/etc/mosquitto/acl` (`root:mosquitto`, 0640) y `setup_pi.sh` la referencia en
+`conf.d/v2v.conf`. Con `acl_file` activo, **todo lo que no está permitido se deniega**.
+
+| Usuario | Puede leer | Puede escribir |
+|---|---|---|
+| `rw612-a`, `esp32-b` (nodos) | `v2v/<su id>/cmd`, `v2v/all/cmd` | `v2v/<su id>/telemetry`, `alert`, `status` (incluye el LWT), `sensor/#` |
+| `dashboard` | `v2v/#` | `v2v/+/cmd` (incluye `v2v/all/cmd`) y `v2v/verify/#` (también lo lee, para `verify-pi`) |
+
+Cómo funciona:
+- Las reglas de nodos son líneas `pattern`: aplican a **todos** los usuarios y `%u` se sustituye por el
+  nombre de usuario. Por eso **el usuario MQTT de un nodo debe ser igual a su `node_id`**: es lo que
+  impide que un nodo (o quien tenga su contraseña) publique como otro.
+- El LWT (`offline`, retenido) se escribe en `v2v/<id>/status`; Mosquitto comprueba ese permiso al
+  conectar, así que sin la regla de `status` el nodo ni siquiera se conectaría.
+- Un publish denegado **no devuelve error** en MQTT 3.1.1 (el broker lo descarta en silencio, incluso
+  con QoS 1). Para ver el rechazo, prueba con MQTT 5: `mosquitto_pub -V 5 -q 1 ...` imprime
+  `Not authorized`. En el cliente de un nodo, el síntoma es que el dato nunca llega.
+- Los `pattern` también permiten a `dashboard` escribir `v2v/dashboard/...` (inofensivo). `dashboard`
+  y `all` no deben usarse como `node_id`.
+
+Agregar un usuario:
+1. **Un nodo nuevo** (usuario = `node_id`): añádelo a `USERS` en `setup_pi.sh` y corre
+   `sudo ./setup_pi.sh` (pide su contraseña oculta). La ACL **no cambia**: los `pattern` ya lo cubren.
+2. **Un usuario que no es nodo** (otro dashboard, un registrador): añade un bloque `user <nombre>` con
+   sus `topic read|write|readwrite` al final de `acl`, y también a `USERS`.
+
+Aplicar un cambio de la ACL sin repetir todo el setup (desde la laptop, luego en la Pi):
+```powershell
+scp gateway/pi/acl joshua@10.42.0.1:~/v2v-gateway/
+```
+```bash
+sudo install -m 640 -o root -g mosquitto ~/v2v-gateway/acl /etc/mosquitto/acl
+sudo systemctl restart mosquitto      # los nodos se reconectan solos en segundos
+```
+
+Probar una regla (desde la laptop, con el usuario `dashboard` en un archivo de opciones `-o`, sin
+poner la contraseña en la línea de comandos): suscríbete al tópico y publica con `-V 5 -q 1`; una
+publicación denegada muestra `Not authorized` y el suscriptor no la recibe.
+
+> `tools/node-simulator` conecta con **un solo usuario**, así que ya no puede publicar como otros
+> nodos en la Pi (solo en desarrollo; usar el broker de la laptop, `gateway/docker-compose.yml`, o un
+> usuario por `--node-id`).
+
 ## Verificar
 
 ```bash
 verify-pi        # servicios, modo, publicación anónima rechazada, ida y vuelta MQTT autenticada
 ```
-Córrelo en `home`, en `pit` y después de reiniciar (`sudo reboot`).
+Córrelo en `home`, en `pit` y después de reiniciar (`sudo reboot`). Usa el usuario `dashboard`
+(es el único con acceso a `v2v/verify/#`).
 
 ## Si la Pi no responde (recuperación)
 
@@ -153,7 +200,8 @@ Córrelo en `home`, en `pit` y después de reiniciar (`sudo reboot`).
 
 | Archivo | Qué hace |
 |---|---|
-| `setup_pi.sh` | instala y configura Mosquitto (idempotente), usuarios, scripts |
+| `setup_pi.sh` | instala y configura Mosquitto (idempotente), usuarios, ACL, scripts |
+| `acl` | lista de control de acceso de Mosquitto (se instala en `/etc/mosquitto/acl`) |
 | `add_home_wifi.sh` | agrega (sin activar) el perfil `home-wifi`, prioridad 10 |
 | `pi-mode.sh` | `home` / `pit` / `confirm` / `status` / `rollback` (se instala como `pi-mode`) |
 | `verify_pi.sh` | verificación (se instala como `verify-pi`) |

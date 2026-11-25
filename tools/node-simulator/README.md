@@ -1,6 +1,7 @@
 # node-simulator
 
 Fake nodes (default `rw612-a` and `esp32-b`) that publish schema-valid telemetry, retained
+per-variable `sensor/{brake_pct|temp_c|distance_cm}` topics (2 Hz; `esp32-b` only `brake_pct`), retained
 status with LWT, and random alerts. Lets the dashboard and integration tests run without hardware.
 
 ```powershell
@@ -26,6 +27,10 @@ python tools/node-simulator/simulator.py                     # asks the password
 | `--alert-prob` | | `0.02` | alert probability per sample per node |
 | `--count` | | `0` | stop after N samples per node (0 = forever) |
 | `--seed` | | none | reproducible values |
+
+**ACL (dev only):** the Pi broker restricts each user to `v2v/<user>/...` (`gateway/pi/acl`), so with
+one `--username` the simulator can no longer publish as several node ids there. Use the laptop broker
+(`gateway/docker-compose.yml`), or run one simulator per user with `--node-id <user>`.
 
 Each node has its own connection, LWT (`offline`, retained) and retained `online` on connect.
 Distance is `null` (and `sensor_ok` bit0 cleared) ~5 % of samples.
